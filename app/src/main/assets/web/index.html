@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OPhone AI Local Service</title>
+<style>
+:root{color-scheme:light dark}
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:Canvas;color:CanvasText}
+main{max-width:720px;margin:0 auto;padding:32px 22px}
+.card{border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:18px;padding:20px;margin-top:18px}
+h1{margin:0 0 8px;font-size:28px}
+p{line-height:1.55;color:color-mix(in srgb,CanvasText 72%,transparent)}
+code{font-family:ui-monospace,monospace}
+.badge{display:inline-block;padding:5px 10px;border-radius:999px;background:#4f67ff;color:#fff;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+  <span class="badge">LOCAL ONLY</span>
+  <h1>OPhone AI Local Service</h1>
+  <p>The on-device tool server is running on the Android loopback interface.</p>
+  <div class="card">
+    <strong>Private by default</strong>
+    <p>Tool endpoints require an app-private authentication token and are intended to be used through the OPhone AI native bridge. This page does not expose control actions.</p>
+  </div>
+  <div class="card">
+    <strong>Open source</strong>
+    <p>Review permissions, app-control policy and tool activity inside OPhone AI. The local server port may change automatically if the preferred port is already in use.</p>
+  </div>
+</main>
+</body>
+</html>

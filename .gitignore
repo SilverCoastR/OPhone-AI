@@ -1,0 +1,31 @@
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+
+# Signing keys and packages
+*.keystore
+*.jks
+*.apk
+*.aab
+
+# Optional local dependencies and development helpers
+gateway/
+plugin/
+tests/device/
+
+# Local release artifacts and development records
+outputs/
+docs/evidence/
+docs/archive/
+docs/WORKLOG.md
+docs/CURRENT_STATE.txt
+docs/PROGRESS.md
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

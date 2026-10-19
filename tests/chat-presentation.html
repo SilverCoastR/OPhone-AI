@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OPhoneAI 聊天显示验收夹具</title>
+<style>
+body{margin:0;background:#f6f7f9;color:#20252b;font:16px/1.6 system-ui,sans-serif}
+header{padding:12px 20px;background:#fff;border-bottom:1px solid #ddd;font-weight:600}
+main{max-width:600px;padding:12px 20px 180px;margin:auto}
+article{margin:16px 0;padding:16px;background:#fff;border-radius:14px}
+[data-chatgpt-search-unit-key$=":user"]{background:#edf2fa;padding:12px;border-radius:12px}
+pre{white-space:pre-wrap;word-break:break-word;font-size:12px}p{margin:0}
+#prompt-textarea{position:fixed;box-sizing:border-box;bottom:16px;left:5%;width:90%;height:72px;border:1px solid #aab2bd;border-radius:16px;padding:14px;font:16px system-ui;background:white;color:#20252b}
+</style>
+<header>OPhoneAI · 聊天显示验收夹具</header>
+<main>
+<article data-testid="conversation-turn-1"><div data-chatgpt-search-unit-key="m1:user"><p>[[OPHONEAI_PROTOCOL_V1]]</p><p>setup_id: presentation-fixture</p><p>Phone tools setup</p></div></article>
+<article data-testid="conversation-turn-2"><div data-chatgpt-search-unit-key="m2:assistant"><p>OPHONEAI_READY_V1 presentation-fixture</p></div></article>
+<article data-testid="conversation-turn-3"><div data-chatgpt-search-unit-key="m3:user"><p>打开应用商店。</p></div></article>
+<article data-testid="conversation-turn-4"><div data-chatgpt-search-unit-key="m4:assistant"><p>OPHONEAI_CALL_V1</p><div>JSON</div><pre><code>{"call_id":"demo-launch","tool":"launch_app","arguments":{"app_name":"应用商店"}}</code></pre></div></article>
+<article data-testid="conversation-turn-5"><div data-chatgpt-search-unit-key="m5:user"><p>OPHONEAI_RESULT_V1 {"protocol":"ophone-ai-local-tools-v1","call_id":"demo-launch","tool":"launch_app","ok":true,"result":{"completion_event":{"type":"app.foreground"}}}</p></div></article>
+<article data-testid="conversation-turn-6"><div data-chatgpt-search-unit-key="m6:assistant"><p>应用商店已打开，并确认它正在手机前台运行。</p></div></article>
+<article data-testid="conversation-turn-7"><div data-chatgpt-search-unit-key="m7:user"><p>为什么之前会看到 OPHONEAI_RESULT_V1 这些字符串？</p></div></article>
+<article data-testid="conversation-turn-8"><div data-chatgpt-search-unit-key="m8:assistant"><p>内部执行记录默认收起。点击“执行详情”可查看，普通对话会一直显示。</p></div></article>
+</main>
+<textarea id="prompt-textarea" placeholder="输入你的手机任务"></textarea>
+<script>
+// Local DOM-only fixture: no account connection and no Android action.
+window.OPhoneAI={listTools:async()=>[{name:'launch_app',inputSchema:{type:'object'}}],trace(){},call:async()=>{throw Error('fixture must not execute phone actions')}};
+window.fixtureMetrics=()=>({
+  visibleTurns:[...document.querySelectorAll('article')].filter(n=>getComputedStyle(n).display!=='none').map(n=>n.getAttribute('data-testid')),
+  collapsed:document.querySelector('#__ophone_ai_execution_details')?.getAttribute('aria-expanded')==='false',
+  ready:window.__OPhoneAIRuntime?.state.ready,
+  rawCallPreserved:document.querySelector('code')?.textContent.includes('demo-launch')
+});
+</script>
+<script src="../app/src/main/assets/web/ophone-ai-runtime.js"></script>
+</html>
