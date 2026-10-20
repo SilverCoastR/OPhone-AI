@@ -20,20 +20,38 @@ final class TerminalJobs {
     private final Map<String,Job> jobs=new ConcurrentHashMap<>();
     private final ExecutorService workers=Executors.newCachedThreadPool();
     private static final int CAP=262144;
+    static final String REPORT_PREFIX="@@ophone:report ";
+    private static String clip(String s,int max){return s.length()>max?s.substring(0,max):s;}
     TerminalJobs(Context context,Workspace workspace,File files,Events events){this.context=context;this.workspace=workspace;this.events=events;receipts=new File(files,"workbench_terminal_receipts");receipts.mkdirs();prune();}
     private void prune(){File[] entries=receipts.listFiles((d,n)->n.endsWith(".json"));if(entries==null)return;Arrays.sort(entries,Comparator.comparingLong(File::lastModified).reversed());for(int i=0;i<entries.length;i++)if(i>=64||entries[i].lastModified()<System.currentTimeMillis()-7*24*60*60*1000L){String name=entries[i].getName().replace(".json","");for(String suffix:new String[]{".json",".stdout",".stderr",".pid"})new File(receipts,name+suffix).delete();}}
     private static String quote(String s){return "'"+s.replace("'","'\\''")+"'";}
     final class Job {
         String id,owner; JSONObject scope; Process process; File pidFile,lease,exitFile,reasonFile; long started,deadline;volatile long ended;volatile int exit=-1,pid,effectiveUid=-1;
         volatile String state="starting",error="";volatile boolean stopped,rootVerified;boolean root;ByteArrayOutputStream out=new ByteArrayOutputStream(),err=new ByteArrayOutputStream();long outTotal,errTotal;
-        synchronized void append(boolean stderr,byte[] b,int n){ByteArrayOutputStream target=stderr?err:out;int room=CAP-target.size();if(room>0)target.write(b,0,Math.min(room,n));if(stderr)errTotal+=n;else outTotal+=n;}
+        // Status reports: stdout lines "@@ophone:report {json}" written by scripts at key points.
+        final ArrayDeque<JSONObject> reports=new ArrayDeque<>();int reportCount;long lastOutputAt,lastReportAt,lastReportEventAt;String lastStage="";final ByteArrayOutputStream line=new ByteArrayOutputStream();
+        synchronized void append(boolean stderr,byte[] b,int n){ByteArrayOutputStream target=stderr?err:out;int room=CAP-target.size();if(room>0)target.write(b,0,Math.min(room,n));if(stderr)errTotal+=n;else outTotal+=n;lastOutputAt=System.currentTimeMillis();if(!stderr)scan(b,n);}
+        private void scan(byte[] b,int n){for(int i=0;i<n;i++){if(b[i]=='\n'){report(new String(line.toByteArray(),StandardCharsets.UTF_8));line.reset();}else if(line.size()<8192)line.write(b[i]);}}
+        private void report(String text){
+            if(!text.startsWith(REPORT_PREFIX))return;JSONObject r;
+            try{JSONObject raw=new JSONObject(text.substring(REPORT_PREFIX.length()).trim());r=new JSONObject().put("seq",++reportCount).put("at",System.currentTimeMillis()).put("stage",clip(raw.optString("stage","report"),80)).put("message",clip(raw.optString("message",""),500));
+                String level=raw.optString("level","info");r.put("level",Arrays.asList("info","warn","error").contains(level)?level:"info");
+                if(raw.has("progress")){double p=raw.optDouble("progress",Double.NaN);if(!Double.isNaN(p))r.put("progress",Math.max(0,Math.min(1,p)));}
+                JSONObject data=raw.optJSONObject("data");if(data!=null&&data.toString().length()<=2048)r.put("data",data);
+            }catch(Exception malformed){return;}
+            reports.addLast(r);while(reports.size()>20)reports.removeFirst();lastReportAt=r.optLong("at");
+            // Push important reports at once; routine progress at most every two seconds per job.
+            boolean urgent=!"info".equals(r.optString("level"))||!lastStage.equals(r.optString("stage"))||r.optDouble("progress",0)>=1;lastStage=r.optString("stage");
+            if(urgent||lastReportAt-lastReportEventAt>=2000){lastReportEventAt=lastReportAt;try{events.emit("terminal.report",scope,new JSONObject().put("job_id",id).put("state",state).put("report",r));}catch(Exception ignored){}}
+        }
         synchronized JSONObject snapshot(int outOffset,int errOffset)throws Exception {
             byte[] a=out.toByteArray(),b=err.toByteArray();outOffset=Math.max(0,Math.min(a.length,outOffset));errOffset=Math.max(0,Math.min(b.length,errOffset));
             int aEnd=Math.min(a.length,outOffset+16384),bEnd=Math.min(b.length,errOffset+16384);
             return new JSONObject().put("ok",true).put("job_id",id).put("task_id",owner).put("state",state).put("started_at",started).put("finished_at",ended)
                 .put("root_requested",root).put("root_verified",rootVerified).put("effective_uid",effectiveUid<0?JSONObject.NULL:effectiveUid)
                 .put("exit_code",ended==0?JSONObject.NULL:exit).put("pid",pid).put("stdout",new String(a,outOffset,aEnd-outOffset,StandardCharsets.UTF_8)).put("stderr",new String(b,errOffset,bEnd-errOffset,StandardCharsets.UTF_8))
-                .put("stdout_offset",aEnd).put("stderr_offset",bEnd).put("stdout_bytes",outTotal).put("stderr_bytes",errTotal).put("output_truncated",outTotal>CAP||errTotal>CAP).put("error",error);
+                .put("stdout_offset",aEnd).put("stderr_offset",bEnd).put("stdout_bytes",outTotal).put("stderr_bytes",errTotal).put("output_truncated",outTotal>CAP||errTotal>CAP).put("error",error)
+                .put("reports",new JSONArray(reports)).put("report_count",reportCount).put("last_report_at",lastReportAt).put("last_output_at",lastOutputAt).put("idle_ms",ended==0?System.currentTimeMillis()-Math.max(started,lastOutputAt):0);
         }
         synchronized void save(){try{JSONObject s=snapshot(0,0);s.remove("stdout");s.remove("stderr");if(ended>0){Workspace.write(new File(receipts,id+".stdout"),out.toByteArray());Workspace.write(new File(receipts,id+".stderr"),err.toByteArray());}Workspace.write(new File(receipts,id+".json"),s.toString().getBytes(StandardCharsets.UTF_8));}catch(Exception ignored){}}
         void kill(){if(lease!=null)lease.delete();if(root){return;}try{if(pid>1)Os.kill(-pid,OsConstants.SIGKILL);}catch(Exception ignored){}if(process!=null)process.destroy();}
@@ -51,11 +69,26 @@ final class TerminalJobs {
                 pb=new ProcessBuilder(su,"-c",RootJobScript.script(command,RootAccess.policyFile(context),rootPolicy.getString("generation"),j.lease,j.pidFile,j.exitFile,j.reasonFile,cwd,(j.deadline+999)/1000,0));
             }else {j.effectiveUid=android.os.Process.myUid();pb=new ProcessBuilder("/system/bin/setsid","/system/bin/sh","-c","echo $$ > "+quote(j.pidFile.getAbsolutePath())+"; exec /system/bin/sh -c "+quote(command));}pb.directory(cwd);
             pb.environment().put("HOME",workspace.root.getAbsolutePath());pb.environment().put("TMPDIR",new File(workspace.root,"tmp").getAbsolutePath());new File(workspace.root,"tmp").mkdirs();
+            if(!root)try{pb.environment().putAll(PythonRuntime.ensure(context,workspace).vars);}catch(Exception ignored){/* Plain shell stays available; workbench_status reports the Python error. */}
             JSONObject env=a.optJSONObject("env");if(env!=null){Iterator<String> keys=env.keys();while(keys.hasNext()){String k=keys.next(),v=env.getString(k);if(!k.matches("[A-Za-z_][A-Za-z0-9_]{0,100}")||v.length()>4096)throw new IllegalArgumentException("invalid_environment");pb.environment().put(k,v);}}
             try{j.process=pb.start();}catch(Exception failure){if(j.lease!=null)j.lease.delete();throw failure;}j.state=root?"authorizing_root":"running";jobs.put(j.id,j);j.save();
             Future<?> out=workers.submit(()->drain(j,j.process.getInputStream(),false)),err=workers.submit(()->drain(j,j.process.getErrorStream(),true));
             workers.submit(()->finish(j,out,err));return j.snapshot(0,0);
         }
+    }
+    /** Run Python source or a workspace script as an ordinary task-owned terminal job. */
+    JSONObject python(JSONObject a,JSONObject scope)throws Exception {
+        PythonRuntime.Env py=PythonRuntime.ensure(context,workspace);String code=a.optString("code",""),script=a.optString("script","");
+        if(code.isEmpty()==script.isEmpty())throw new IllegalArgumentException("exactly_one_of_code_or_script");if(code.length()>65536)throw new IllegalArgumentException("code_max_65536_chars");
+        String relative=script;File file;
+        if(!code.isEmpty()){relative="tmp/python/run-"+UUID.randomUUID()+".py";file=workspace.resolve(relative);Workspace.write(file,code.getBytes(StandardCharsets.UTF_8));}
+        else{file=workspace.resolve(script);if(!file.isFile())throw new IllegalArgumentException("python_script_not_found");}
+        StringBuilder command=new StringBuilder("exec ").append(quote(py.launcher.getAbsolutePath())).append(" -u -X utf8 ").append(quote(file.getAbsolutePath()));
+        JSONArray args=a.optJSONArray("args");if(args!=null){if(args.length()>64)throw new IllegalArgumentException("python_args_max_64");for(int i=0;i<args.length();i++){String arg=args.getString(i);if(arg.length()>4096)throw new IllegalArgumentException("python_arg_too_long");command.append(' ').append(quote(arg));}}
+        JSONObject job=new JSONObject().put("command",command.toString()).put("cwd",a.optString("cwd","")).put("timeout_ms",a.optLong("timeout_ms",30000));if(a.has("env"))job.put("env",a.getJSONObject("env"));
+        JSONObject result=start(job,scope);
+        String stdin=a.optString("stdin","");if(!stdin.isEmpty()||a.optBoolean("close_stdin",true)){Job j=jobs.get(result.getString("job_id"));byte[] bytes=stdin.getBytes(StandardCharsets.UTF_8);if(bytes.length>16384)throw new IllegalArgumentException("stdin_too_large");try{synchronized(j){if(bytes.length>0)j.process.getOutputStream().write(bytes);if(a.optBoolean("close_stdin",true))j.process.getOutputStream().close();else j.process.getOutputStream().flush();}}catch(IOException ignored){/* The script may already have exited. */}}
+        return result.put("language","python").put("python_version",py.version).put("script",relative);
     }
     private void drain(Job j,InputStream in,boolean stderr){try{byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)j.append(stderr,b,n);}catch(IOException ignored){}finally{try{in.close();}catch(Exception ignored){}}}
     private void finish(Job j,Future<?> out,Future<?> err){try{

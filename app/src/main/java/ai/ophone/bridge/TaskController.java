@@ -14,12 +14,13 @@ public final class TaskController {
     private final AgentStore store;
     private TaskController(Context c) { context=c.getApplicationContext();store=AgentStore.get(c); }
     public static synchronized TaskController get(Context c) { if(instance==null) instance=new TaskController(c);return instance; }
+    static final String BUDGET_PAUSE="task_step_budget_reached_waiting_for_user";
     public static boolean terminal(String status) { return java.util.Arrays.asList("succeeded","blocked","failed","cancelled").contains(status); }
     static String digest(String text) throws Exception {
         byte[] bytes=MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)); StringBuilder b=new StringBuilder();
         for(byte value:bytes) b.append(String.format(Locale.ROOT,"%02x",value&255));return b.toString();
     }
-    private void save(JSONObject t) throws Exception { t.put("updated_at",System.currentTimeMillis());store.putTask(t);if(terminal(t.optString("status")))AgentEvents.get(context).closeTask(t.getString("id")); }
+    private void save(JSONObject t) throws Exception { t.put("updated_at",System.currentTimeMillis());store.putTask(t);if(terminal(t.optString("status")))AgentEvents.get(context).closeTask(t.getString("id"));TaskProgress.taskChanged(context,t); }
     private static boolean isContinuation(String goal) { return goal.trim().matches("(?i)(继续|接着|继续执行|continue|resume)[。.!！\\s]*"); }
     private static boolean isReplacement(String goal){return goal.matches("(?is).*(改为|改成|换成|换为|之前.{0,20}先不管|旧任务.{0,20}不管|重新开始|change\\s+(?:the\\s+)?target|switch\\s+(?:the\\s+)?target|ignore\\s+(?:the\\s+)?previous|start\\s+over).*");}
     public synchronized JSONObject begin(String conversation,String human,String goal) throws Exception {
@@ -43,7 +44,7 @@ public final class TaskController {
         JSONObject t=new JSONObject().put("id","task-"+digest(conversation+"\n"+human).substring(0,32)).put("conversation",conversation)
                 .put("human_key",human).put("goal",goal).put("intent",TaskVerifier.intent(goal)).put("status","running")
                 .put("created_at",now).put("updated_at",now).put("progress_at",now).put("model_wait_at",now).put("last_seen_at",now)
-                .put("deadline_at",now+30*60*1000).put("criteria",new JSONArray()).put("issues",new JSONArray())
+                .put("deadline_at",now+RiskPolicy.budget(context)[2]*60*1000L).put("criteria",new JSONArray()).put("issues",new JSONArray())
                 .put("pending_call",JSONObject.NULL).put("no_progress_count",0).put("wake_count",0).put("last_tool","");
         t.put("tool_count",0).put("action_count",0);
         if(predecessor!=null) {
@@ -143,6 +144,15 @@ public final class TaskController {
         if(!conversation.matches("c:[A-Za-z0-9:._-]{1,180}"))throw new IllegalArgumentException("invalid_task_conversation");
         if("observe_request".equals(action)) {
             String goal=args.optString("goal");
+            JSONArray open=store.tasks(conversation,true);
+            if(open.length()>0&&"waiting_user".equals(open.getJSONObject(0).optString("status"))){
+                JSONObject t=open.getJSONObject(0);long now=System.currentTimeMillis();JSONArray answers=t.optJSONArray("user_answers");if(answers==null)answers=new JSONArray();
+                answers.put(new JSONObject().put("question",t.optJSONObject("user_question")==null?"":t.getJSONObject("user_question").optString("question")).put("answer",goal.length()>2000?goal.substring(0,2000):goal).put("at",now));
+                if(t.optBoolean("budget_extend_pending")){t.put("action_count",0).remove("budget_extend_pending");}
+                t.put("user_answers",answers).put("status","running").put("user_question",JSONObject.NULL).put("deadline_at",Math.max(t.optLong("deadline_at",now),now+30*60*1000L)).put("model_wait_at",now).put("last_seen_at",now).put("resume_human_key",args.optString("human_key"));
+                save(t);log(t,"user_answered","The user answered the agent's question; the same task continues.",null);
+                return new JSONObject().put("ok",true).put("managed",true).put("continued",true).put("answered_question",true).put("task",t);
+            }
             if(args.optBoolean("guidance_if_active")){JSONArray active=store.tasks(conversation,true);if(active.length()>0){JSONObject existing=active.getJSONObject(0);if(isReplacement(goal)){PlatformSession.cancelTask(context,existing,"The user replaced the active target with a new task.");JSONObject replacement=begin(conversation,args.optString("human_key"),goal);log(replacement,"task_target_replaced","The old task and its native jobs were cancelled before starting the new target.",null);return new JSONObject().put("ok",true).put("managed",true).put("replaced",true).put("task",replacement);}long now=System.currentTimeMillis();existing.put("last_guidance",DetailedDiagnostics.clean(goal)).put("guidance_count",existing.optInt("guidance_count")+1).put("last_seen_at",now).put("model_wait_at",now);if("waiting_provider".equals(existing.optString("status"))||"awaiting_model".equals(existing.optString("status")))existing.put("status","running");save(existing);log(existing,"user_guidance","The user added guidance to the running task; the original task identity was preserved.",null);return new JSONObject().put("ok",true).put("managed",true).put("continued",true).put("task",existing);}}
             if("general".equals(TaskVerifier.intent(goal))) {
                 if(!isContinuation(goal))return new JSONObject().put("ok",true).put("managed",false);
@@ -194,6 +204,7 @@ public final class TaskController {
             for(int i=0;issues!=null&&i<issues.length();i++)if(issues.getJSONObject(i).optString("id").equals(args.optString("issue_id")))issues.getJSONObject(i).put("delivered",true);
             t.put("model_wait_at",System.currentTimeMillis());save(t);return new JSONObject().put("ok",true);
         }
+        if("propose_end".equals(action)&&"waiting_user".equals(t.optString("status")))return new JSONObject().put("ok",true).put("verified",false).put("waiting_for_user",true).put("task",t);
         if("propose_end".equals(action))return verify(new JSONObject().put("conversation",conversation).put("task_id",t.getString("id")),args,true);
         throw new IllegalArgumentException("unknown_task_action");
     }
@@ -204,10 +215,15 @@ public final class TaskController {
         if(terminal(t.getString("status"))&&!diagnostic)throw new IllegalStateException("task_finished_new_user_request_required");
         if(t.optBoolean("resume_observation_required")&&isMutation(tool))throw new IllegalStateException("resumed_task_requires_fresh_android_observation_before_actions");
         int count=t.optInt("tool_count",store.operations(t.getString("id")).length()),actions=t.optInt("action_count",0);
-        if(!terminal(t.getString("status"))&&isMutation(tool)&&actions>=48) {
-            t.put("status","failed").put("end_reason","Native task action budget exceeded (48 state-changing calls); original goal and diagnostics retained.");
-            save(t);log(t,"native_task_budget_exceeded",t.getString("end_reason"),null);
-            throw new IllegalStateException("native_task_tool_budget_exceeded");
+        int budget=RiskPolicy.budget(context)[0];
+        if(!terminal(t.getString("status"))&&isMutation(tool)&&actions>=budget) {
+            // Pause instead of failing: the user decides whether the task may take another round of steps.
+            long now=System.currentTimeMillis();
+            t.put("status","waiting_user").put("budget_extend_pending",true).put("model_wait_at",0).put("last_seen_at",now)
+                    .put("user_question",new JSONObject().put("question",context.getString(R.string.budget_question,actions)).put("options",new JSONArray().put(context.getString(R.string.budget_continue)).put(context.getString(R.string.budget_stop))).put("asked_at",now))
+                    .put("deadline_at",Math.max(t.optLong("deadline_at",now),now+24*60*60*1000L));
+            save(t);log(t,"native_task_budget_reached","Step budget reached ("+budget+" state-changing calls); waiting for the user to allow more.",null);
+            throw new IllegalStateException(BUDGET_PAUSE);
         }
         t.put("tool_count",count+1);if(isMutation(tool))t.put("action_count",actions+1);
         String call=scope.optString("call_id"),fingerprint=digest(tool+"\n"+args.toString());
@@ -252,7 +268,7 @@ public final class TaskController {
                 int repeats=changed?0:t.optInt("no_progress_count",0)+1;t.put("no_progress_count",repeats);
                 if(repeats>=3)issue(t,"repeated_observation_without_progress","The observed UI is unchanged. Check the original goal and actual download/operation progress; choose a different plan if stuck.");
             }
-            if(ok&&java.util.Arrays.asList("get_ui","screenshot","find_apps","browser_snapshot","browser_tabs","terminal_status","workbench_status","workbench_file").contains(tool)) {
+            if(ok&&java.util.Arrays.asList("get_ui","wait_for_ui","android_info","android_resolve","screenshot","find_apps","browser_snapshot","browser_tabs","terminal_status","workbench_status","workbench_file").contains(tool)) {
                 t.put("resume_observation_required",false);
                 JSONArray past=store.operations(t.getString("id"));
                 for(int i=0;i<past.length();i++) {
@@ -290,14 +306,27 @@ public final class TaskController {
         task.put("diagnostic_checks",new JSONArray(required));
     }
     private void clearIssue(JSONObject task,String code)throws Exception{JSONArray old=task.optJSONArray("issues"),next=new JSONArray();for(int i=0;old!=null&&i<old.length();i++)if(!code.equals(old.getJSONObject(i).optString("code")))next.put(old.getJSONObject(i));task.put("issues",next);}
+    /** ask_user: park the task until the user's next message answers the question. */
+    public synchronized JSONObject awaitUser(JSONObject scope,JSONObject args)throws Exception{
+        JSONObject t=scoped(scope,args);if(terminal(t.getString("status")))throw new IllegalStateException("task_already_finished");
+        String question=args.optString("question").trim();if(question.isEmpty()||question.length()>1000)throw new IllegalArgumentException("question_required_max_1000");
+        JSONArray options=new JSONArray(),raw=args.optJSONArray("options");
+        for(int i=0;raw!=null&&i<raw.length();i++){String o=raw.optString(i).trim();if(o.isEmpty())continue;if(options.length()>=6||o.length()>80)throw new IllegalArgumentException("options_max_6_each_80_chars");options.put(o);}
+        long now=System.currentTimeMillis();
+        t.put("status","waiting_user").put("user_question",new JSONObject().put("question",question).put("options",options).put("asked_at",now))
+                .put("model_wait_at",0).put("last_seen_at",now).put("deadline_at",Math.max(t.optLong("deadline_at",now),now+24*60*60*1000L));
+        save(t);log(t,"awaiting_user",question,null);
+        return new JSONObject().put("ok",true).put("waiting_for_user",true).put("task_id",t.getString("id")).put("question",question).put("options",options)
+                .put("instruction","Stop calling tools. End this turn by asking the user exactly this question (list the options if any). The user's next message is the answer and continues this same task.");
+    }
     public synchronized JSONObject claimDirectResume(String conversation)throws Exception{
-        if(conversation==null||!conversation.startsWith("c:api.deepseek."))return null;
+        if(conversation==null||!conversation.startsWith("c:api."))return null;
         JSONArray tasks=store.tasks(conversation,true);if(tasks.length()==0)return null;JSONObject t=tasks.getJSONObject(0);
-        if(terminal(t.optString("status"))||"waiting_event".equals(t.optString("status"))||t.optJSONObject("pending_call")!=null)return null;
+        if(terminal(t.optString("status"))||"waiting_event".equals(t.optString("status"))||"waiting_user".equals(t.optString("status"))||t.optJSONObject("pending_call")!=null)return null;
         long now=System.currentTimeMillis(),last=t.optLong("model_wait_at",t.optLong("updated_at",now));if(now-last<8000)return null;
         int count=t.optInt("direct_resume_count",0);if(count>=3)return null;
         t.put("direct_resume_count",count+1).put("direct_resume_at",now).put("last_seen_at",now).put("status","running").put("model_wait_at",now);
-        clearIssue(t,"model_provider_unavailable");save(t);log(t,"direct_model_auto_resume","DeepSeek direct task resumed from its persisted conversation and native receipts.",null);return new JSONObject(t.toString());
+        clearIssue(t,"model_provider_unavailable");save(t);log(t,"direct_model_auto_resume","Direct API task resumed from its persisted conversation and native receipts.",null);return new JSONObject(t.toString());
     }
     private JSONArray eventChecks(JSONObject task)throws Exception{
         JSONArray notices=AgentEvents.get(context).pending(task.getString("id"));JSONObject seen=task.optJSONObject("event_versions");if(seen==null)seen=new JSONObject();boolean changed=false;
@@ -331,6 +360,7 @@ public final class TaskController {
                     t.put("status","failed").put("end_reason","Task deadline exceeded; diagnostic report retained on the phone.");
                     log(t,"task_deadline_exceeded",t.getString("end_reason"),null);save(t);continue;
                 }
+                if("waiting_user".equals(t.optString("status")))continue;
                 if("waiting_event".equals(t.optString("status"))){
                     if(wakeEventWait(t,now))continue;
                     t.put("last_seen_at",now);save(t);continue;
@@ -352,9 +382,9 @@ public final class TaskController {
                     if(now-pending.optLong("started_at",now)>130000)issue(t,"native_feedback_pending","An operation receipt needs recovery. Inspect task_status and execution_status.");
                 } else if(pending==null&&t.optLong("model_wait_at",0)>0&&now-t.getLong("model_wait_at")>45000) {
                     if(RuntimeDiagnostics.modelGenerating(t.getString("conversation")))continue;
-                    if(t.getString("conversation").startsWith("c:api.deepseek.")){
-                        if(t.optInt("direct_resume_count",0)>=3){t.put("status","failed").put("end_reason","DeepSeek direct task did not finish after three bounded automatic resumes; diagnostics and original goal retained.");log(t,"direct_model_resume_exhausted",t.getString("end_reason"),null);}
-                        else issue(t,"native_task_needs_continuation","The DeepSeek direct task is still open. Its persisted conversation will resume automatically from current Android evidence.");
+                    if(t.getString("conversation").startsWith("c:api.")){
+                        if(t.optInt("direct_resume_count",0)>=3){t.put("status","failed").put("end_reason","Direct API task did not finish after three bounded automatic resumes; diagnostics and original goal retained.");log(t,"direct_model_resume_exhausted",t.getString("end_reason"),null);}
+                        else issue(t,"native_task_needs_continuation","The direct API task is still open. Its persisted conversation will resume automatically from current Android evidence.");
                         save(t);continue;
                     }
                     int wakes=t.optInt("wake_count",0);
@@ -376,7 +406,7 @@ public final class TaskController {
             }
         } catch(Exception error) { DetailedDiagnostics.event(context,"error","task","","","task_supervisor_error","Native task supervision failed.",error); }
     }
-    public static boolean isMutation(String tool) { return WorkbenchTools.mutates(tool)||java.util.Arrays.asList("tap","swipe","click_text","input_text","press_global","launch_app","open_url","download_file","install_apk","uninstall_app","screen_record_start").contains(tool); }
+    public static boolean isMutation(String tool) { return WorkbenchTools.mutates(tool)||java.util.Arrays.asList("android_intent","android_control","tap","swipe","click_text","input_text","press_global","launch_app","open_url","download_file","install_apk","uninstall_app","screen_record_start").contains(tool); }
 
     /** Register the durable artifact receipt immediately; later UI changes cannot invalidate a recording. */
     public synchronized void recordingStarted(JSONObject scope,JSONObject result,JSONObject args,String kind)throws Exception{
@@ -431,6 +461,7 @@ public final class TaskController {
     public synchronized String notificationText() {
         try {
             JSONArray active=store.tasks(null,true);
+            if(TaskProgress.running())return TaskProgress.statusLine(context);
             if(active.length()>0)return context.getString("waiting_provider".equals(active.getJSONObject(0).optString("status"))?R.string.agent_waiting_provider:R.string.agent_task_running);
             JSONArray recent=store.tasks(null,false);
             if(recent.length()>0&&java.util.Arrays.asList("failed","blocked").contains(recent.getJSONObject(0).optString("status")))return context.getString(R.string.agent_task_attention);

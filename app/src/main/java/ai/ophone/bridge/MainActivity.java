@@ -39,12 +39,12 @@ public class MainActivity extends Activity {
         root.addView(statusCard, UiKit.cardParams(this));
 
         addAction(root, R.string.open_chatgpt, () ->
-        { PlatformSession.cancelProvider(this, PlatformSession.DEEPSEEK);
+        { PlatformSession.switchTo(this, PlatformSession.CHATGPT);
                 startActivity(new Intent(this, ChatActivity.class)
                         .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)); });
 
         addAction(root, R.string.open_deepseek, () ->
-        { PlatformSession.cancelProvider(this, PlatformSession.CHATGPT);
+        { PlatformSession.switchTo(this, ModelProvider.isApiPlatform(PlatformPreference.get(this)) ? PlatformPreference.get(this) : PlatformSession.DEEPSEEK);
                 startActivity(new Intent(this, ApiChatActivity.class)
                         .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)); });
 

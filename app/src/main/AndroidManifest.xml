@@ -3,6 +3,7 @@
     package="ai.ophone.bridge">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -100,6 +101,11 @@
             android:exported="false"
             android:stopWithTask="false" />
 
+        <activity android:name=".MemoryActivity" android:exported="false" />
+        <activity android:name=".AboutActivity" android:exported="false" android:launchMode="singleTop" />
+        <activity android:name=".FeedbackActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".MiniAppActivity" android:exported="false" android:documentLaunchMode="always"
+            android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize" />
         <activity android:name="ai.ophone.workbench.BrowserActivity" android:process=":workbench" android:taskAffinity="ai.ophone.bridge.browser"
             android:exported="false" android:launchMode="singleTask" android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize" />

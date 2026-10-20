@@ -32,11 +32,17 @@ public class LocalToolKernel {
 
     public JSONObject call(String tool,JSONObject args,JSONObject scope) throws Exception {
         if (args == null) args = new JSONObject();
+        // The user pressed "Take over" on the control mask: the phone is theirs until they hand it back.
+        if (TaskProgress.userControl() && TaskController.isMutation(tool))
+            return new JSONObject().put("ok", false).put("error", "user_takeover")
+                    .put("message", "The user pressed Take over and is operating the phone themselves. Do not act on the phone until they hand control back (you will be told). Wait, or ask them with ask_user.");
         String auditPackage = activePackage();
 
         try {
             TaskController.get(context).beforeTool(scope,tool,args);
+            TaskProgress.toolStarted(context,scope,tool);
             JSONObject result = callInternal(tool, args, scope);
+            TaskProgress.toolFinished(scope);
             if(eventful(tool)){
                 boolean ok=!result.has("ok")||result.optBoolean("ok");String pkg=result.optString("package","");
                 JSONObject event=AgentEvents.get(context).publish(ok?"operation.completed":"operation.failed","kernel",scope,pkg,ok?"info":"error",new JSONObject().put("tool",tool).put("request_completed",ok).put("outcome_verified",result.optBoolean("foreground_matches_target",false)).put("error",result.optString("error","")));
@@ -55,6 +61,7 @@ public class LocalToolKernel {
             return result;
         } catch (Exception e) {
             if(eventful(tool))try{AgentEvents.get(context).publish("operation.failed","kernel",scope,"","error",new JSONObject().put("tool",tool).put("error",DetailedDiagnostics.clean(e.getMessage())));}catch(Exception ignored){}
+            TaskProgress.toolFinished(scope);
             TaskController.get(context).afterTool(scope,tool,new JSONObject(),e);
             if(scope==null||scope.optString("task_id").isEmpty()) DetailedDiagnostics.event(context,"error","tool","","","tool_failed",e.getClass().getName()+": "+e.getMessage(),e);
             String target = auditPackage;
@@ -96,6 +103,8 @@ public class LocalToolKernel {
             out.put("accessibility_health",AccessibilityHealth.status(context));
             out.put("event_feedback",new JSONObject().put("persistent",true).put("task_scoped",true).put("explicit_ack",true).put("source_order","completion/window events, structured state, UI tree, screenshot fallback").put("own_logcat_monitor",LogcatEventMonitor.status()));
             out.put("programs",new JSONObject().put("language","JavaScript").put("available",Build.VERSION.SDK_INT>=28).put("execution","separate process/WebView profile, JSON input/output, 5-second worker watchdog").put("android_or_java_bridge",false).put("network",false).put("workspace_cli",true).put("arbitrary_os_shell",false).put("python_or_apk_compiler",false));
+            out.put("memory",new JSONObject().put("available",true).put("items",MemoryStore.get(context).count()).put("tools","memory_search, memory_save, memory_delete").put("user_visible",true));
+            out.put("status_reports",new JSONObject().put("python","from ophone import report, step").put("shell","echo '@@ophone:report {\"stage\":\"...\",\"message\":\"...\"}'").put("javascript_program","report(stage, message, progress, level)").put("event","terminal.report"));
             out.put("autonomy",new JSONObject().put("dynamic_capability_discovery",true).put("durable_task_state",true).put("operational_checkpoints",true).put("event_wait_and_resume",true).put("fresh_evidence_verification",true).put("safe_fallback_planning",true).put("app_specific_workflows_hardcoded",false));
             JSONArray names=new JSONArray(), definitions=mcpTools();for(int i=0;i<definitions.length();i++)names.put(definitions.getJSONObject(i).getString("name"));
             return out.put("tools",names);
@@ -130,6 +139,20 @@ public class LocalToolKernel {
         if("program_run".equals(tool)){requireAutomationEnabled();return ProgramWorkspace.run(context,args,scope);}
         if("workspace_command".equals(tool)){if(args.optJSONArray("argv")!=null&&"run".equals(args.getJSONArray("argv").optString(0)))requireAutomationEnabled();return ProgramWorkspace.command(context,args,scope);}
         if ("task_set_criteria".equals(tool)) return TaskController.get(context).criteria(scope,args);
+        if ("ask_user".equals(tool)) return TaskController.get(context).awaitUser(scope,args);
+        if ("return_to_chat".equals(tool)) return TaskProgress.bringChatToFront(context,scope==null?"":scope.optString("conversation"));
+        if ("android_intent".equals(tool)) { requireAutomationEnabled(); return AndroidSystemTools.startIntent(context, args, scope); }
+        if ("android_resolve".equals(tool)) return AndroidSystemTools.resolve(context, args);
+        if ("android_info".equals(tool)) return AndroidSystemTools.info(context, args);
+        if ("android_control".equals(tool)) { requireAutomationEnabled(); return AndroidSystemTools.control(context, args); }
+        if ("miniapp_save".equals(tool)) return MiniAppStore.save(context, args);
+        if ("miniapp_read".equals(tool)) return MiniAppStore.read(context, MiniAppStore.name(args.getString("name")));
+        if ("miniapp_list".equals(tool)) return MiniAppStore.list(context);
+        if ("miniapp_delete".equals(tool)) return MiniAppStore.delete(context, MiniAppStore.name(args.getString("name")));
+        if ("miniapp_open".equals(tool)) { MiniAppStore.meta(context, MiniAppStore.name(args.getString("name"))); context.startActivity(MiniAppActivity.intent(context, args.getString("name"))); return new JSONObject().put("ok", true).put("opened", args.getString("name")); }
+        if ("memory_search".equals(tool)) return MemoryStore.get(context).search(args);
+        if ("memory_save".equals(tool)) return MemoryStore.get(context).save(args);
+        if ("memory_delete".equals(tool)) return MemoryStore.get(context).delete(args.getString("id"));
         if ("task_verify".equals(tool)) return TaskController.get(context).verify(scope,args,false);
         if ("task_finish".equals(tool)) return TaskController.get(context).finish(scope,args);
         if ("diagnostic_query".equals(tool)) return AgentStore.get(context).logs(args);
@@ -166,6 +189,20 @@ public class LocalToolKernel {
             int max = Math.max(1, Math.min(30, args.optInt("max_results", 10)));
             return findApps(query, max);
         }
+        if ("wait_for_ui".equals(tool)) {
+            requireAutomationEnabled();
+            DeviceAutomationService a = requireAccessibility();
+            String mode = args.optString("mode", "appear");
+            if (!java.util.Arrays.asList("appear", "disappear", "package", "stable").contains(mode)) throw new IllegalArgumentException("invalid_wait_mode");
+            String text = args.optString("text", ""), pkg = args.optString("package", "");
+            if (text.length() > 200 || ("appear".equals(mode) || "disappear".equals(mode)) && text.isEmpty()) throw new IllegalArgumentException("text_required_max_200");
+            if ("package".equals(mode) && pkg.isEmpty()) throw new IllegalArgumentException("package_required");
+            if (!pkg.isEmpty()) requirePackageAllowed(pkg);
+            JSONObject result = a.waitFor(mode, text, pkg, Math.max(200, Math.min(30000, args.optLong("timeout_ms", 8000))));
+            if (!result.optString("package").isEmpty() && !AppControlPolicy.isAllowed(context, result.optString("package")))
+                return new JSONObject().put("ok", false).put("error", "foreground_app_blocked_by_policy").put("package", result.optString("package"));
+            return result;
+        }
         if ("get_ui".equals(tool)) {
             DeviceAutomationService a = requireAllowedCurrentApp(args, false);
             JSONObject snapshot = a.snapshot();
@@ -185,34 +222,31 @@ public class LocalToolKernel {
             return result;
         }
         if ("tap".equals(tool)) {
-            return boolResult(requireAllowedCurrentApp(args, true).tap(
-                    (float) args.optDouble("x"),
-                    (float) args.optDouble("y")));
+            DeviceAutomationService a = requireAllowedCurrentApp(args, true);
+            return observed(a, args, () -> a.tap((float) args.optDouble("x"), (float) args.optDouble("y")));
         }
         if ("swipe".equals(tool)) {
             long duration = Math.max(100L, Math.min(5000L,
                     args.optLong("duration_ms", 400L)));
-            return boolResult(requireAllowedCurrentApp(args, true).swipe(
-                    (float) args.optDouble("x1"),
-                    (float) args.optDouble("y1"),
-                    (float) args.optDouble("x2"),
-                    (float) args.optDouble("y2"),
-                    duration));
+            DeviceAutomationService a = requireAllowedCurrentApp(args, true);
+            return observed(a, args, () -> a.swipe((float) args.optDouble("x1"), (float) args.optDouble("y1"),
+                    (float) args.optDouble("x2"), (float) args.optDouble("y2"), duration));
         }
         if ("click_text".equals(tool)) {
             String text = args.optString("text");
             if (text.length() < 1 || text.length() > 1000) {
                 throw new IllegalArgumentException("invalid_text");
             }
-            return boolResult(requireAllowedCurrentApp(args, true).clickText(
-                    text, args.optBoolean("contains", true)));
+            DeviceAutomationService a = requireAllowedCurrentApp(args, true);
+            return observed(a, args, () -> a.clickText(text, args.optBoolean("contains", true)));
         }
         if ("input_text".equals(tool)) {
             String text = args.optString("text");
             if (text.length() > 20000) {
                 throw new IllegalArgumentException("text_too_long");
             }
-            return boolResult(requireAllowedCurrentApp(args, true).setText(text));
+            DeviceAutomationService a = requireAllowedCurrentApp(args, true);
+            return observed(a, args, () -> a.setText(text));
         }
         if ("press_global".equals(tool)) {
             requireAutomationEnabled();
@@ -222,7 +256,7 @@ public class LocalToolKernel {
             }
             DeviceAutomationService service = args.optString("expected_package").isEmpty()
                     ? requireAccessibility() : requireAllowedCurrentApp(args, true);
-            return boolResult(service.global(action));
+            return observed(service, args, () -> service.global(action));
         }
         if ("launch_app".equals(tool)) {
             requireAutomationEnabled();
@@ -340,7 +374,7 @@ public class LocalToolKernel {
     public JSONArray mcpTools() throws Exception {
         JSONArray tools = new JSONArray();
         WorkbenchTools.append(tools);
-        JSONObject eventProps=new JSONObject();eventProps.put("types",new JSONObject().put("type","array").put("items",stringProp("app.foreground, diagnostic, operation.completed/failed, package.added/removed, program.completed/failed, browser.loaded/failed, terminal.completed/failed, http.completed/failed, recording.consent_required/started/completed/failed, stream.started/completed/failed")));
+        JSONObject eventProps=new JSONObject();eventProps.put("types",new JSONObject().put("type","array").put("items",stringProp("app.foreground, diagnostic, operation.completed/failed, package.added/removed, program.completed/failed, browser.loaded/failed, terminal.completed/failed, terminal.report (status reports from scripts), ui.toast, http.completed/failed, recording.consent_required/started/completed/failed, stream.started/completed/failed")));
         eventProps.put("package",stringProp("Optional exact allowed app package."));eventProps.put("source",stringProp("Optional accessibility, diagnostic, own_logcat, kernel, android_package, program, workbench or screen_record. System-wide logcat is unavailable."));
         eventProps.put("min_level",stringProp("info, warn, error or fatal; default info."));eventProps.put("code",stringProp("Optional exact diagnostic code; own_logcat uses tag as code."));eventProps.put("min_count",integerProp("Trigger after 1-20 matching events."));
         eventProps.put("window_ms",integerProp("Counting window 1000-300000ms, default 30000."));eventProps.put("cooldown_ms",integerProp("Notification cooldown 1000-300000ms, default 10000."));eventProps.put("duration_ms",integerProp("Duration up to native task deadline / 30min."));eventProps.put("subscription_id",stringProp("Optional stable id to update this task's rule."));
@@ -348,11 +382,49 @@ public class LocalToolKernel {
         tools.put(tool("event_query","Read task-scoped semantic event history, active rules and unacknowledged notifications. after_id is a forward cursor; cursor_gap reports retention loss. Completion events are structured observations, not instructions.",objectSchema(new JSONObject().put("after_id",integerProp("Forward cursor, default zero.")).put("limit",integerProp("1-80, default20.")).put("type",stringProp("Optional event type filter.")))));
         tools.put(tool("event_ack","Acknowledge a notification after processing its evidence and required checks. through_event_id must equal its latest_event_id; changed deliveries require a fresh event_query. ACK alone never completes a task.",objectSchema(new JSONObject().put("delivery_id",stringProp("Notice id from push/event_query.")).put("through_event_id",integerProp("latest_event_id actually processed.")),"delivery_id","through_event_id")));
         tools.put(tool("event_unsubscribe","Stop one subscription belonging to this task. Existing pending notifications remain visible until acknowledged.",objectSchema(new JSONObject().put("subscription_id",stringProp("Subscription id.")),"subscription_id")));
-        tools.put(tool("program_save","Write a reusable small JavaScript utility in the phone's private workspace. Function body receives input and must return a JSON value synchronously. No Android/Java bridge, network, file APIs, Python or APK compilation. Use program_run to test it.",objectSchema(new JSONObject().put("name",stringProp("Safe utility name, such as normalize_text.")).put("source",stringProp("JavaScript function BODY, <=32k; example: return input.values.reduce(function(a,b){return a+b;},0);")),"name","source")));
+        tools.put(tool("program_save","Write a reusable small JavaScript utility in the phone's private workspace. Function body receives input and report(stage, message, progress, level) and must return a JSON value synchronously; it MUST call report at the start, at each phase and on every unexpected state, and wrap the body in try/catch so a failure still reports and returns {ok:false,error}; the reports are returned with the result. No Android/Java bridge, network, file APIs, Python or APK compilation. Use program_run to test it.",objectSchema(new JSONObject().put("name",stringProp("Safe utility name, such as normalize_text.")).put("source",stringProp("JavaScript function BODY, <=32k; example: return input.values.reduce(function(a,b){return a+b;},0);")),"name","source")));
         tools.put(tool("program_run","Run a saved utility in a disposable process and separate WebView profile with bounded execution. Input/output are JSON; returns a native run_id, revision, actual value or concrete script error. For verification use program_result(run_id,equals).",objectSchema(new JSONObject().put("name",stringProp("Saved utility name.")).put("revision",stringProp("Optional expected source SHA256; reject if source changed.")).put("input",new JSONObject().put("description","JSON input value; default {}.")),"name")));
         tools.put(tool("workspace_command","Execute a workspace CLI command as literal argv, with no shell expansion: help, ls, cat NAME, stat NAME, write NAME TEXT, append NAME TEXT, programs, source NAME, run NAME INPUT_JSON. Only dedicated work files are accessible; no OS shell, arbitrary paths or app credentials.",objectSchema(new JSONObject().put("argv",new JSONObject().put("type","array").put("items",new JSONObject().put("type","string"))),"argv")));
         tools.put(tool("capabilities","Discover actual available tools, data sources, permissions and unavailable capabilities. System logcat is separate from own-app diagnostics.",objectSchema(new JSONObject())));
         tools.put(tool("task_status","Read the native original goal, durable phase, completion criteria, pending receipts and diagnostic issues. The task is independent of page DOM.",objectSchema(new JSONObject())));
+        JSONObject askProps=new JSONObject();askProps.put("question",stringProp("One clear question in the user's language, <=1000 chars."));
+        askProps.put("options",new JSONObject().put("type","array").put("items",stringProp("Short answer choice, <=80 chars.")).put("description","Optional 2-6 quick answers shown as buttons; the user may still type anything."));
+        tools.put(tool("return_to_chat","Bring OPhone AI's chat back to the front. Call it as soon as you no longer need other apps (before writing the final answer, a long analysis or a question), so the user is not left looking at another app.",objectSchema(new JSONObject())));
+        tools.put(tool("ask_user","Pause this task and ask the user when you truly need their decision, missing information (account choice, verification code, preference) or confirmation of a risky/irreversible step. Do not ask for things you can find out yourself. After calling it, stop calling tools and end the turn with the question; the user's next message is the answer and continues the same task.",objectSchema(askProps,"question")));
+        JSONObject intentProps=new JSONObject();
+        intentProps.put("action",stringProp("android.intent.action.VIEW (default), SEND, SENDTO, DIAL, INSERT, WEB_SEARCH, MAIN (explicit activity), SET_ALARM, SET_TIMER, SHOW_ALARMS, android.media.action.STILL_IMAGE_CAMERA/VIDEO_CAMERA, or any android.settings.* action."));
+        intentProps.put("data",stringProp("URI: https/http, geo:, tel: (dial only), mailto:, smsto:, market:, content://com.android.calendar/events for INSERT, or an app deep link (custom scheme needs package)."));
+        intentProps.put("type",stringProp("MIME type, e.g. text/plain, image/png, vnd.android.cursor.dir/event."));
+        intentProps.put("package",stringProp("Target package (must be allowed by app policy)."));
+        intentProps.put("activity",stringProp("Explicit activity class (full or starting with '.'), from android_resolve."));
+        intentProps.put("extras",new JSONObject().put("type","object").put("description","String/number/boolean extras, e.g. android.intent.extra.TEXT, android.intent.extra.alarm.HOUR, title, beginTime (epoch ms)."));
+        intentProps.put("share_file",stringProp("Relative workbench workspace file to attach as EXTRA_STREAM with a one-time read grant (use with SEND)."));
+        intentProps.put("chooser",booleanProp("Show the system app chooser; default true for SEND without package."));
+        tools.put(tool("android_intent","Open Android functionality directly instead of navigating UI: open links/deep links, share text or a workspace file, compose SMS/email, dial (never calls), add calendar events, set alarms/timers, open a specific settings page or an app's exported activity. The target app shows its own screen; sending, calling, saving or paying still requires a visible confirmation there, which you then perform or leave to the user. Returns handlers and foreground confirmation.",objectSchema(intentProps)));
+        JSONObject resolveProps=new JSONObject();resolveProps.put("package",stringProp("App to describe: label, version, launch activity, which common intents it handles, exported activities."));
+        resolveProps.put("action",stringProp("Or: an intent spec (action/data/type) to list which apps handle it."));resolveProps.put("data",stringProp("Intent data URI."));resolveProps.put("type",stringProp("Intent MIME type."));
+        tools.put(tool("android_resolve","Discover what an app can be asked to do (its 'manual') or which apps handle an intent, so you can use android_intent instead of long UI routes.",objectSchema(resolveProps)));
+        JSONObject infoProps=new JSONObject();infoProps.put("sections",new JSONObject().put("type","array").put("items",stringProp("battery | network | storage | display | audio | locale | power")).put("description","Default: all."));
+        tools.put(tool("android_info","Read structured system state: battery (percent, charging, temperature), network (wifi/cellular/vpn, validated, metered), storage, display, audio volumes, locale/time, power (screen, saver, battery optimization). Prefer this over reading Settings screens.",objectSchema(infoProps)));
+        JSONObject controlProps=new JSONObject();JSONObject controlAction=stringProp("set_volume | clipboard_set | torch");controlAction.put("enum",new JSONArray().put("set_volume").put("clipboard_set").put("torch"));controlProps.put("action",controlAction);
+        controlProps.put("stream",stringProp("For set_volume: media | ring | alarm | notification."));controlProps.put("percent",integerProp("For set_volume: 0-100."));controlProps.put("level",integerProp("For set_volume: absolute level instead of percent."));
+        controlProps.put("text",stringProp("For clipboard_set."));controlProps.put("on",booleanProp("For torch."));
+        tools.put(tool("android_control","Small reversible device controls without UI: set a volume stream, put text on the clipboard, toggle the flashlight.",objectSchema(controlProps,"action")));
+        JSONObject miniSave=new JSONObject();miniSave.put("name",stringProp("Id: lowercase letters, digits, - or _, <=40."));miniSave.put("title",stringProp("Display title, <=60 chars."));miniSave.put("description",stringProp("What it does, <=300 chars."));
+        miniSave.put("html",stringProp("Complete single-file HTML app (inline CSS/JS, <=512KiB, mobile-first, light and dark). No network: fetch/XHR/WebSocket and remote URLs are blocked. Runtime: await OPhone.call(tool, args) returns the tool's result object (check .ok); OPhone.storage.get/set/getJSON/setJSON persist per app; OPhone.workspaceUrl(path) shows workspace images/video; OPhone.toast(text); OPhone.close(); OPhone.info. Bundled libraries: /lib/markdown-it.min.js, /lib/katex/katex.min.js + /lib/katex/katex.min.css, /lib/highlight.min.js, /lib/mermaid.min.js."));
+        miniSave.put("permissions",new JSONObject().put("type","array").put("items",stringProp("Tool name")).put("description","Every tool the app calls, e.g. android_info, python_run, terminal_status, http_request. The user approves this list on first use; installing apps, root, task control and memory writes are never available."));
+        tools.put(tool("miniapp_save","Create or update a mini app: a small interactive tool with its own screen (dashboard, form, calculator, file viewer, remote control) that the user can reopen from the chat drawer. Prefer a mini app when the user wants a reusable interface rather than a one-off answer. Its page must show progress for every long step and handle every OPhone.call failure visibly (never a silent spinner). Test it with miniapp_open after saving.",objectSchema(miniSave,"name","title","html")));
+        tools.put(tool("miniapp_open","Open a saved mini app on screen.",objectSchema(new JSONObject().put("name",stringProp("Mini app id.")),"name")));
+        tools.put(tool("miniapp_read","Read a mini app's metadata and HTML source before changing it.",objectSchema(new JSONObject().put("name",stringProp("Mini app id.")),"name")));
+        tools.put(tool("miniapp_list","List saved mini apps.",objectSchema(new JSONObject())));
+        tools.put(tool("miniapp_delete","Delete a mini app.",objectSchema(new JSONObject().put("name",stringProp("Mini app id.")),"name")));
+        JSONObject memSearch=new JSONObject();memSearch.put("query",stringProp("Keywords from the goal, app name or screen, <=500 chars."));memSearch.put("app",stringProp("Optional package or app name to prefer."));
+        JSONObject memKind=stringProp("preference | fact | playbook | failure");memKind.put("enum",new JSONArray().put("preference").put("fact").put("playbook").put("failure"));memSearch.put("kind",memKind);memSearch.put("limit",integerProp("1-10, default 5."));
+        tools.put(tool("memory_search","Search long-term memory kept on this phone: user preferences, facts, playbooks (how a task was done before in an app: route, UI landmarks, pitfalls) and failure notes. Search at the start of a task with the goal and target app; treat results as hints and still verify the current screen.",objectSchema(memSearch)));
+        JSONObject memSave=new JSONObject();memSave.put("kind",memKind);memSave.put("title",stringProp("Short title, <=120 chars, e.g. 'Settings: check battery level'."));memSave.put("text",stringProp("<=4000 chars. Playbook: goal, app, ordered steps with visible texts/landmarks, waits, verification, pitfalls. Failure: what was tried and why it failed."));
+        memSave.put("app",stringProp("Package or app name this applies to, if any."));memSave.put("tags",new JSONObject().put("type","array").put("items",stringProp("Tag")).put("description","Up to 12 short tags."));memSave.put("id",stringProp("Existing memory id to update instead of creating a duplicate."));
+        tools.put(tool("memory_save","Save or update a long-term memory. After a task succeeds, save or refine a playbook; after a dead end, save a failure note; when the user states a lasting preference, save it. Never store passwords, verification codes, payment data, tokens or private message contents. The user can see and delete all memories.",objectSchema(memSave,"kind","title","text")));
+        tools.put(tool("memory_delete","Delete a memory that is wrong or outdated.",objectSchema(new JSONObject().put("id",stringProp("Memory id.")),"id")));
         JSONObject checkpointProps=new JSONObject();
         checkpointProps.put("summary",stringProp("Concise observable progress and decisions; no hidden chain-of-thought."));
         checkpointProps.put("next_action",stringProp("Next concrete action or observation."));
@@ -415,6 +487,16 @@ public class LocalToolKernel {
                 "Read the current Android Accessibility UI tree. Blocked apps are refused.",
                 objectSchema(new JSONObject())));
 
+        JSONObject waitProps = new JSONObject();
+        JSONObject waitMode = stringProp("appear (default): text becomes visible; disappear: text is gone; package: app is foreground; stable: UI stops changing.");
+        waitMode.put("enum", new JSONArray("[\"appear\",\"disappear\",\"package\",\"stable\"]"));
+        waitProps.put("mode", waitMode);
+        waitProps.put("text", stringProp("Visible text or description to wait for (case-insensitive substring)."));
+        waitProps.put("package", stringProp("Expected foreground package; required for mode=package, optional filter for appear."));
+        waitProps.put("timeout_ms", integerProp("200-30000, default 8000."));
+        tools.put(tool("wait_for_ui", "Wait until a UI condition holds instead of sleeping or polling screenshots. matched=false with timed_out=true is an observation, not an error.",
+                objectSchema(waitProps)));
+
         tools.put(tool("screenshot",
                 "Capture the current Android display as PNG. Blocked apps are refused.",
                 objectSchema(new JSONObject())));
@@ -422,7 +504,8 @@ public class LocalToolKernel {
         JSONObject tapProps = new JSONObject();
         tapProps.put("x", numberProp("Screen X coordinate in physical pixels."));
         tapProps.put("y", numberProp("Screen Y coordinate in physical pixels."));
-        tools.put(tool("tap", "Tap a screen coordinate in the currently allowed app.",
+        tapProps.put("observe", booleanProp("Return effect (what changed: texts, package, toasts) after the UI settles; default true."));
+        tools.put(tool("tap", "Tap a screen coordinate in the currently allowed app. The result's effect field reports what visibly changed; no_visible_change means re-inspect before retrying.",
                 objectSchema(tapProps, "x", "y")));
 
         JSONObject swipeProps = new JSONObject();
@@ -431,18 +514,21 @@ public class LocalToolKernel {
         swipeProps.put("x2", numberProp("End X."));
         swipeProps.put("y2", numberProp("End Y."));
         swipeProps.put("duration_ms", integerProp("Gesture duration in milliseconds, 100-5000."));
-        tools.put(tool("swipe", "Swipe in the currently allowed app.",
+        swipeProps.put("observe", booleanProp("Return effect after the UI settles; default true."));
+        tools.put(tool("swipe", "Swipe in the currently allowed app. Returns effect (added/removed text, package, toasts).",
                 objectSchema(swipeProps, "x1", "y1", "x2", "y2")));
 
         JSONObject clickProps = new JSONObject();
         clickProps.put("text", stringProp("Visible text or content description to click."));
         clickProps.put("contains", booleanProp("Allow partial matching."));
-        tools.put(tool("click_text", "Click a visible element in the currently allowed app.",
+        clickProps.put("observe", booleanProp("Return effect after the UI settles; default true."));
+        tools.put(tool("click_text", "Click a visible element in the currently allowed app. Returns effect (added/removed text, package, toasts).",
                 objectSchema(clickProps, "text")));
 
         JSONObject inputProps = new JSONObject();
         inputProps.put("text", stringProp("Text to put in the focused editable field."));
-        tools.put(tool("input_text", "Set text in the currently allowed app.",
+        inputProps.put("observe", booleanProp("Return effect after the UI settles; default true."));
+        tools.put(tool("input_text", "Set text in the currently allowed app. Returns effect.",
                 objectSchema(inputProps, "text")));
 
         JSONObject globalProps = new JSONObject();
@@ -452,7 +538,8 @@ public class LocalToolKernel {
         actionEnum.put("notifications"); actionEnum.put("quick_settings");
         action.put("enum", actionEnum);
         globalProps.put("action", action);
-        tools.put(tool("press_global", "Perform an Android global navigation action.",
+        globalProps.put("observe", booleanProp("Return effect after the UI settles; default true."));
+        tools.put(tool("press_global", "Perform an Android global navigation action. Returns effect.",
                 objectSchema(globalProps, "action")));
 
         JSONObject launchProps = new JSONObject();
@@ -607,6 +694,25 @@ public class LocalToolKernel {
     private String activePackage() {
         DeviceAutomationService a = DeviceAutomationService.getInstance();
         return a == null ? "" : a.currentPackageName();
+    }
+
+    interface Action { boolean run() throws Exception; }
+    /** Runs a UI action and, unless observe=false, reports what visibly changed (texts, package, toasts). */
+    private JSONObject observed(DeviceAutomationService a, JSONObject args, Action action) throws Exception {
+        boolean observe = args.optBoolean("observe", true);
+        JSONObject before = null;
+        if (observe) try { before = a.uiSignature(); } catch (Exception ignored) {}
+        long at = System.currentTimeMillis();
+        JSONObject out = boolResult(action.run());
+        if (out.optBoolean("ok") && before != null) {
+            try {
+                JSONObject effect = a.effect(before, at, Math.max(300, Math.min(4000, args.optLong("settle_ms", 1500))));
+                String after = effect.optString("package_after");
+                if (!after.isEmpty() && !AppControlPolicy.isAllowed(context, after)) effect = new JSONObject().put("changed", true).put("package_after", after).put("blocked_by_policy", true);
+                out.put("effect", effect);
+            } catch (Exception e) { out.put("effect_error", String.valueOf(e.getMessage())); }
+        }
+        return out;
     }
 
     private JSONObject boolResult(boolean ok) throws Exception {

@@ -51,6 +51,7 @@ public class SettingsActivity extends Activity {
                 RiskPolicy.KEY_AUTOMATION,
                 RiskPolicy.automationEnabled(this),
                 false);
+        addBudgetCard();
         addSettingCard(
                 R.string.downloads_title,
                 R.string.downloads_desc,
@@ -101,9 +102,17 @@ public class SettingsActivity extends Activity {
             }
         });
 
+        root.addView(UiKit.section(this, getString(R.string.about_section_app)));
+        addActionCard(R.string.about_title,
+                () -> startActivity(new Intent(this, AboutActivity.class)));
+        addActionCard(R.string.feedback_title,
+                () -> startActivity(new Intent(this, FeedbackActivity.class)));
+
         root.addView(UiKit.section(this, getString(R.string.section_transparency)));
         addActionCard(R.string.audit_button,
                 () -> startActivity(new Intent(this, AuditActivity.class)));
+        addActionCard(R.string.memory_button,
+                () -> startActivity(new Intent(this, MemoryActivity.class)));
 
         LinearLayout statusCard = UiKit.card(this);
         status = UiKit.body(this, "");
@@ -121,12 +130,12 @@ public class SettingsActivity extends Activity {
     private void addPlatformCard(){
         LinearLayout card=UiKit.card(this);TextView selected=UiKit.body(this,"");String current=PlatformPreference.get(this);
         selected.setText(getString(R.string.selected_platform,current.isEmpty()?getString(R.string.platform_none):providerLabel(current)));card.addView(selected);
-        Button deep=UiKit.actionButton(this,getString(R.string.switch_deepseek));deep.setOnClickListener(v->switchPlatform(PlatformSession.DEEPSEEK));card.addView(deep);
+        for(ModelProvider p:ModelProvider.ALL){if(p.platform.equals(current))continue;Button api=UiKit.actionButton(this,getString(R.string.switch_to_platform,p.label+" API"));api.setOnClickListener(v->switchPlatform(p.platform));card.addView(api);}
         Button chatgpt=UiKit.actionButton(this,getString(R.string.switch_chatgpt));chatgpt.setOnClickListener(v->switchPlatform(PlatformSession.CHATGPT));card.addView(chatgpt);
-        Button choose=UiKit.actionButton(this,getString(R.string.choose_platform));choose.setOnClickListener(v->{String old=PlatformPreference.get(this);if(!old.isEmpty())PlatformSession.cancelProvider(this,old);PlatformPreference.clear(this);startActivity(new Intent(this,PlatformActivity.class).putExtra(PlatformPreference.EXTRA_SHOW_CHOOSER,true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));finish();});card.addView(choose);root.addView(card,UiKit.cardParams(this));
+        Button choose=UiKit.actionButton(this,getString(R.string.choose_platform));choose.setOnClickListener(v->{PlatformSession.leave(this,PlatformPreference.get(this));PlatformPreference.clear(this);startActivity(new Intent(this,PlatformActivity.class).putExtra(PlatformPreference.EXTRA_SHOW_CHOOSER,true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));finish();});card.addView(choose);root.addView(card,UiKit.cardParams(this));
     }
-    private String providerLabel(String provider){return getString(PlatformSession.DEEPSEEK.equals(provider)?R.string.platform_deepseek:R.string.platform_chatgpt);}
-    private void switchPlatform(String provider){String old=PlatformPreference.get(this);if(!old.isEmpty()&&!old.equals(provider))PlatformSession.cancelProvider(this,old);PlatformPreference.set(this,provider);startActivity(new Intent(this,PlatformPreference.target(this,provider).activity).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));finish();}
+    private String providerLabel(String provider){ModelProvider p=ModelProvider.forPlatform(provider);return p==null?getString(R.string.platform_chatgpt):p.label+" API";}
+    private void switchPlatform(String provider){PlatformSession.switchTo(this,provider);startActivity(new Intent(this,PlatformPreference.target(this,provider).activity).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));finish();}
 
     private void addRootSetting() {
         LinearLayout card=UiKit.card(this);rootSwitch=new Switch(this);rootSwitch.setId(0x534a0037);rootSwitch.setText(R.string.root_shell_title);rootSwitch.setTextSize(16);rootSwitch.setTextColor(UiKit.primaryTextColor(this));rootSwitch.setChecked(RiskPolicy.rootShellEnabled(this));rootSwitch.setMinHeight(UiKit.dp(this,48));card.addView(rootSwitch);
@@ -186,6 +195,28 @@ public class SettingsActivity extends Activity {
             updateStatus();
         });
 
+        root.addView(card, UiKit.cardParams(this));
+    }
+
+    private void addBudgetCard() {
+        LinearLayout card = UiKit.card(this);
+        int[] labels = {R.string.task_budget_level_0, R.string.task_budget_level_1, R.string.task_budget_level_2};
+        Button button = UiKit.actionButton(this, "");
+        Runnable refresh = () -> button.setText(getString(R.string.task_budget_title) + "\n" + getString(labels[RiskPolicy.budgetLevel(this)]));
+        refresh.run();
+        button.setOnClickListener(v -> {
+            String[] items = new String[labels.length];
+            for (int i = 0; i < labels.length; i++) items[i] = getString(labels[i]);
+            new android.app.AlertDialog.Builder(this).setTitle(R.string.task_budget_title)
+                    .setSingleChoiceItems(items, RiskPolicy.budgetLevel(this), (dialog, which) -> {
+                        RiskPolicy.setBudgetLevel(this, which); refresh.run(); dialog.dismiss();
+                    }).show();
+        });
+        card.addView(button, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView desc = UiKit.body(this, getString(R.string.task_budget_desc));
+        desc.setTextSize(13f);
+        desc.setPadding(UiKit.dp(this, 14), 0, UiKit.dp(this, 14), UiKit.dp(this, 6));
+        card.addView(desc);
         root.addView(card, UiKit.cardParams(this));
     }
 

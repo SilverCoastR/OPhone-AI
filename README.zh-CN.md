@@ -9,6 +9,7 @@ OPhone AI 是一个开源 Android 智能体运行环境。模型可以在用户�
 - 基于无障碍服务的 Android 界面读取与操作
 - 持久任务状态、检查点、事件反馈、执行回执、等待和终止
 - 内置浏览器：标签页、DOM 操作、脚本执行、截图、媒体发现、缩放和独立 Cookie
+- 内置 CPython 3 及标准库，AI 可通过 `python_run` 执行脚本
 - 应用私有工作区、`/system/bin/sh`、HTTP 请求、下载和可复用 JavaScript 小工具
 - Android 系统录屏，以及对网页中可发现媒体流的直接录制
 - 应用控制白名单、本地审计日志、能力开关和可选 Root Shell
@@ -17,7 +18,7 @@ OPhone AI 是一个开源 Android 智能体运行环境。模型可以在用户�
 
 ## 构建
 
-需要 Android SDK Platform 33、Build Tools 33.0.2、Gradle 5.1.1，以及兼容 Android Gradle Plugin 3.4 的 JDK。网页运行时测试需要 Node.js 18 或更高版本。
+需要 Android SDK Platform 33、Build Tools 33.0.2、Gradle 5.1.1，以及兼容 Android Gradle Plugin 3.4 的 JDK。构建机还需要 Android NDK 和 Python 3.7+；首次构建会下载 python.org 官方 CPython Android 发行包（约 46 MB，校验 SHA-256）到 `.python-cache/`，`python` 不在 PATH 时可传 `-PhostPython=<路径>`。网页运行时测试需要 Node.js 18 或更高版本。
 
 ```text
 gradle assembleDebug

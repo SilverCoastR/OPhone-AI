@@ -194,6 +194,7 @@ public final class NativeAgentChecks extends Instrumentation {
             }
             if(!workbenchOnly){JSONArray eventPrograms=NativeEventProgramChecks.run(context,suite);passed+=eventPrograms.length();result.putString("event_program_scenarios",eventPrograms.toString());}
             JSONArray workbench=NativeWorkbenchChecks.run(context,suite);passed+=workbench.length();result.putString("workbench_scenarios",workbench.toString());
+            JSONArray autonomy=NativeAutonomyChecks.run(context,suite);passed+=autonomy.length();result.putString("autonomy_scenarios",autonomy.toString());
             JSONArray rootChecks=NativeRootChecks.run(context,suite);passed+=rootChecks.length();result.putString("root_scenarios",rootChecks.toString());
             JSONArray apiChecks=NativeApiChecks.run(context,suite);passed+=apiChecks.length();result.putString("api_scenarios",apiChecks.toString());
             result.putInt("passed",passed);result.putString("result","Native task/verifier/diagnostic/event/program/workbench checks passed; not real model task count.");finish(android.app.Activity.RESULT_OK,result);

@@ -43,6 +43,15 @@ public final class RiskPolicy {
         return prefs(c).getBoolean(KEY_PIP, true);
     }
 
+    /** Task size level: {state-changing actions, model tool calls per run, task minutes}. */
+    public static final String KEY_BUDGET = "task_budget_level";
+    public static final int[][] BUDGETS = {{48, 80, 30}, {150, 250, 90}, {400, 600, 240}};
+    public static int budgetLevel(Context c) {
+        return Math.max(0, Math.min(BUDGETS.length - 1, prefs(c).getInt(KEY_BUDGET, 1)));
+    }
+    public static int[] budget(Context c) { return BUDGETS[budgetLevel(c)]; }
+    public static void setBudgetLevel(Context c, int level) { prefs(c).edit().putInt(KEY_BUDGET, level).apply(); }
+
     public static boolean rootShellEnabled(Context c) {return RootAccess.enabled(c);}
 
     public static void set(Context c, String key, boolean value) {

@@ -9,6 +9,7 @@ The app currently supports ChatGPT through an embedded web session and DeepSeek 
 - Android UI automation through an opt-in Accessibility service
 - Structured task state, checkpoints, event feedback, execution receipts, and cancellation
 - A built-in browser with tabs, DOM actions, JavaScript evaluation, screenshots, media discovery, zoom controls, and a separate cookie profile
+- Bundled CPython 3 with the standard library for model-run scripts (`python_run`)
 - A sandboxed workspace, `/system/bin/sh` jobs, HTTP requests, downloads, and reusable JavaScript utilities
 - Screen recording through Android MediaProjection and direct recording of discoverable live media streams
 - Per-app control policy, local audit log, capability switches, and an optional root shell gate
@@ -23,6 +24,7 @@ Requirements:
 - JDK 8 or newer compatible with Android Gradle Plugin 3.4
 - Android SDK Platform 33 and Build Tools 33.0.2
 - Gradle 5.1.1
+- Android NDK (any recent version) and Python 3.7+ on the build machine; the first build downloads the official CPython Android release (about 46 MB, SHA-256 verified) into `.python-cache/`. Pass `-PhostPython=<path>` if `python` is not on `PATH`
 - Node.js 18 or newer for the web-runtime tests
 
 ```text

@@ -1,0 +1,10 @@
+Bundled chat-rendering libraries (unmodified distribution files):
+
+- markdown-it 14.1.0 — MIT License — https://github.com/markdown-it/markdown-it
+- KaTeX 0.16.11 (JS, CSS, WOFF2 fonts) — MIT License — https://github.com/KaTeX/KaTeX
+- highlight.js 11.10.0 (common languages build) — BSD 3-Clause License — https://github.com/highlightjs/highlight.js
+- Mermaid 11.4.1 — MIT License — https://github.com/mermaid-js/mermaid
+
+Embedded CPython (downloaded at build time by tools/python-android/prepare.py):
+- CPython 3.14.8 Android release — Python Software Foundation License — https://www.python.org/
+  Includes OpenSSL (Apache License 2.0), SQLite (public domain) and other components listed in the CPython LICENSE.

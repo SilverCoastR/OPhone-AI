@@ -2,16 +2,26 @@
     <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:colorAccent">#4F67FF</item>
-        <item name="android:statusBarColor">#F6F7FB</item>
-        <item name="android:navigationBarColor">#F6F7FB</item>
+        <item name="android:switchStyle">@style/IosSwitch</item>
+        <item name="android:colorControlActivated">@color/ios_accent</item>
+        <item name="android:colorAccent">@color/ios_accent</item>
+        <item name="android:statusBarColor">@color/ios_page</item>
+        <item name="android:navigationBarColor">@color/ios_page</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowBackground">#F6F7FB</item>
+        <item name="android:windowBackground">@color/ios_page</item>
     </style>
     <style name="CaptureConsentTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/ios_page</item>
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowNoTitle">true</item>
+    </style>
+    <style name="IosSwitch" parent="@android:style/Widget.Material.CompoundButton.Switch">
+        <item name="android:thumb">@drawable/ios_switch_thumb</item>
+        <item name="android:track">@drawable/ios_switch_track</item>
+        <item name="android:thumbTint">@null</item>
+        <item name="android:trackTint">@null</item>
+        <item name="android:switchMinWidth">51dp</item>
+        <item name="android:textSize">17sp</item>
     </style>
 </resources>
