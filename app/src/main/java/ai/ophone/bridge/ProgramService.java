@@ -18,7 +18,7 @@ import java.io.ByteArrayInputStream;
 /** A disposable WebView host in :program, with a separate browser profile and no native JS interfaces. */
 public final class ProgramService extends Service {
     private WebView view;private Messenger reply;private boolean finished,loaded,received;
-    private String source,input,errorStack="";
+    private String source,input,errorStack="";private org.json.JSONArray reports;
     private final Handler main=new Handler(android.os.Looper.getMainLooper());
     @Override public void onCreate(){
         super.onCreate();
@@ -51,19 +51,20 @@ public final class ProgramService extends Service {
         if(!loaded||!received||source==null||finished)return;
         String code=source;source=null;
         if(code.length()>32768||input.length()>16384){complete(false,null,"program_input_or_source_too_large");return;}
-        String script="(function(){var stringify=JSON.stringify;try{var input=JSON.parse("+JSONObject.quote(input)+");var fn=new Function('input',"+JSONObject.quote("'use strict';\n"+code)+");var value=fn(input);"
-                +"if(value&&typeof value.then==='function')throw new Error('async_programs_not_supported');var out=stringify({ok:true,value:value===undefined?null:value});"
-                +"return out.length>32768?stringify({ok:false,error:'program_output_too_large'}):out;}catch(e){return stringify({ok:false,error:String(e&&e.name||'Error')+': '+String(e&&e.message||e).slice(0,500),error_stack:String(e&&e.stack||'').slice(0,6000)});}})()";
+        String script="(function(){var stringify=JSON.stringify;var reports=[];function report(stage,message,progress,level){if(reports.length>=50)return;var r={stage:String(stage||'report').slice(0,80),message:String(message===undefined?'':message).slice(0,500),level:(level==='warn'||level==='error')?level:'info'};if(typeof progress==='number'&&isFinite(progress))r.progress=Math.max(0,Math.min(1,progress));reports.push(r);}"
+                +"try{var input=JSON.parse("+JSONObject.quote(input)+");var fn=new Function('input','report',"+JSONObject.quote("'use strict';\n"+code)+");var value=fn(input,report);"
+                +"if(value&&typeof value.then==='function')throw new Error('async_programs_not_supported');var out=stringify({ok:true,value:value===undefined?null:value,reports:reports});"
+                +"return out.length>32768?stringify({ok:false,error:'program_output_too_large',reports:reports}):out;}catch(e){return stringify({ok:false,error:String(e&&e.name||'Error')+': '+String(e&&e.message||e).slice(0,500),error_stack:String(e&&e.stack||'').slice(0,6000),reports:reports});}})()";
         view.evaluateJavascript(script,raw->{
             try{if(raw.length()>80000)throw new IllegalArgumentException("program_output_too_large");Object text=new JSONTokener(raw).nextValue();if(!(text instanceof String))throw new IllegalStateException("program_no_json_result");ProgramRunner.checkJsonDepth((String)text);JSONObject out=new JSONObject((String)text);
-                errorStack=DetailedDiagnostics.clean(out.optString("error_stack",""));complete(out.optBoolean("ok"),out.opt("value"),out.optString("error","program_failed"));
+                errorStack=DetailedDiagnostics.clean(out.optString("error_stack",""));reports=out.optJSONArray("reports");complete(out.optBoolean("ok"),out.opt("value"),out.optString("error","program_failed"));
             }catch(Exception error){complete(false,null,"program_result_invalid");}
         });
     }
     private void complete(boolean ok,Object value,String error){
         if(finished)return;finished=true;
         try{JSONObject out=new JSONObject().put("ok",ok).put("worker_pid",android.os.Process.myPid()).put("worker_uid",android.os.Process.myUid())
-                    .put("engine","Android WebView, separate process/profile, no native JS bridge").put("value",value==null?JSONObject.NULL:value);
+                    .put("engine","Android WebView, separate process/profile, no native JS bridge").put("value",value==null?JSONObject.NULL:value).put("reports",reports==null?new org.json.JSONArray():reports);
             if(!ok)out.put("error",DetailedDiagnostics.clean(error)).put("error_stack",errorStack);
             Message result=Message.obtain();Bundle data=new Bundle();data.putString("result",out.toString());result.setData(data);if(reply!=null)reply.send(result);
         }catch(Exception ignored){}

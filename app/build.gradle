@@ -9,13 +9,22 @@ android {
         testInstrumentationRunner "ai.ophone.bridge.NativeAgentChecks"
         minSdkVersion 24
         targetSdkVersion 33
-        versionCode 1
-        versionName "1.0.0"
+        versionCode 31
+        versionName "1.10.13"
+        // Address that receives feedback reports from the in-app feedback page; empty until decided.
+        buildConfigField "String", "FEEDBACK_EMAIL", '"ooorrrt88@gmail.com"'
     }
 
     buildTypes {
         release {
             minifyEnabled false
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDir "$buildDir/python/jniLibs"
+            assets.srcDir "$buildDir/python/assets"
         }
     }
 
@@ -27,3 +36,16 @@ android {
 
 dependencies {
 }
+
+// Embedded CPython from the official python.org Android releases; see tools/python-android.
+task prepareEmbeddedPython(type: Exec) {
+    def script = rootProject.file('tools/python-android/prepare.py')
+    inputs.file script
+    inputs.file rootProject.file('tools/python-android/launcher.c')
+    outputs.dir "$buildDir/python"
+    commandLine(findProperty('hostPython') ?: 'python', script,
+            '--sdk', android.sdkDirectory,
+            '--cache', rootProject.file('.python-cache'),
+            '--out', "$buildDir/python")
+}
+preBuild.dependsOn prepareEmbeddedPython

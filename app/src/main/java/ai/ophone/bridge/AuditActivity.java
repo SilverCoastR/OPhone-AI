@@ -23,7 +23,7 @@ public class AuditActivity extends Activity {
         page.addView(UiKit.spacer(this, 14));
 
         LinearLayout controls = UiKit.card(this);
-        Button clear = UiKit.actionButton(this, getString(R.string.audit_clear));
+        Button clear = UiKit.plainButton(this, getString(R.string.audit_clear), true);
         clear.setOnClickListener(v -> {
             AuditLog.clear(this);
             refresh();

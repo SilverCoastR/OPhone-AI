@@ -7,9 +7,30 @@ import java.util.UUID;
 
 /** Ends native work when the user leaves a model/control platform. */
 final class PlatformSession {
-    static final String CHATGPT="chatgpt_web",DEEPSEEK="deepseek_api";
+    static final String CHATGPT="chatgpt_web",DEEPSEEK="deepseek_api",OPENAI="openai_api",CLAUDE="claude_api";
     private PlatformSession(){}
-    static boolean belongs(JSONObject task,String provider){boolean deep=task.optString("conversation").startsWith("c:api.deepseek.");return DEEPSEEK.equals(provider)?deep:CHATGPT.equals(provider)&&!deep;}
+    /** API platforms share local conversations (c:api.*); the ChatGPT web platform owns every other conversation. */
+    static boolean belongs(JSONObject task,String provider){boolean api=task.optString("conversation").startsWith("c:api.");return ModelProvider.isApiPlatform(provider)?api:CHATGPT.equals(provider)&&!api;}
+    /**
+     * Leaving an API platform: open API tasks are not cancelled but paused with a question, so the next API platform
+     * continues them only after the user explicitly answers "continue" there.
+     */
+    /** Leaving a platform: API work is parked for a possible handoff, ChatGPT web work is ended. */
+    static void leave(Context context,String old){if(old==null||old.isEmpty())return;ModelProvider p=ModelProvider.forPlatform(old);if(p!=null){DirectModelAgent.stopProvider(old);parkApiTasks(context,p.label);}else cancelProvider(context,old);}
+    /** ChatGPT web and the API platforms never share work; API platforms hand off to each other. */
+    static void switchTo(Context context,String provider){String previous=PlatformPreference.get(context);
+        if(ModelProvider.isApiPlatform(provider)){cancelProvider(context,CHATGPT);if(ModelProvider.isApiPlatform(previous)&&!previous.equals(provider))leave(context,previous);}
+        else for(ModelProvider p:ModelProvider.ALL)cancelProvider(context,p.platform);
+        PlatformPreference.set(context,provider);}
+    static int parkApiTasks(Context context,String fromLabel){int parked=0;try{JSONArray active=AgentStore.get(context).tasks(null,true);ApiConversationStore history=new ApiConversationStore(context);
+        for(int i=0;i<active.length();i++){JSONObject task=active.getJSONObject(i);if(!belongs(task,DEEPSEEK)||"waiting_user".equals(task.optString("status")))continue;
+            try{String question=context.getString(R.string.handoff_question,fromLabel,task.optString("goal"));if(question.length()>1000)question=question.substring(0,1000);
+                JSONArray options=new JSONArray().put(context.getString(R.string.handoff_continue)).put(context.getString(R.string.budget_stop));
+                TaskController.get(context).awaitUser(new JSONObject().put("conversation",task.getString("conversation")).put("task_id",task.getString("id")),new JSONObject().put("question",question).put("options",options));
+                history.append(task.getString("conversation"),new JSONObject().put("role","assistant").put("content",question).put("ask_user",true).put("options",options).put("provider","native_task").put("created_at",System.currentTimeMillis()));parked++;
+            }catch(Exception one){DetailedDiagnostics.event(context,"warning","task",task.optString("id"),"","platform_handoff_park_failed","Unable to pause one API task for platform handoff.",one);}}
+        AuditLog.record(context,"platform_handoff",fromLabel,true,"paused_api_tasks="+parked);
+    }catch(Exception error){DetailedDiagnostics.event(context,"error","task","","","platform_handoff_failed","Unable to enumerate API tasks for platform handoff.",error);}return parked;}
     static void cancelTask(Context context,JSONObject task) throws Exception {cancelTask(context,task,"User terminated this task or left its AI control platform.");}
     static void cancelTask(Context context,JSONObject task,String reason) throws Exception {
         String taskId=task.getString("id"),conversation=task.getString("conversation");JSONObject scope=new JSONObject().put("conversation",conversation).put("task_id",taskId).put("call_id","cancel-"+UUID.randomUUID().toString());

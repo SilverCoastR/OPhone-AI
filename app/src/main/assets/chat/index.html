@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>OPhone AI</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="scrim" hidden></div>
+<aside id="drawer" class="glass" aria-label="Conversations">
+  <div class="drawer-head">
+    <h2>OPhone AI</h2>
+    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="search" type="search" autocomplete="off"></div>
+  </div>
+  <button id="drawer-new" class="drawer-item strong"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span data-i18n="newChat"></span></button>
+  <nav id="history" class="history"></nav>
+  <div class="drawer-foot">
+    <button class="drawer-item" data-open="browser"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span data-i18n="browser"></span></button>
+    <button class="drawer-item" data-open="model"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg><span data-i18n="model"></span></button>
+    <button class="drawer-item" data-open="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span data-i18n="settings"></span></button>
+    <div class="drawer-row">
+      <button class="drawer-item" data-open="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/></svg><span data-i18n="about"></span><span id="update-dot" class="update-dot" hidden></span></button>
+      <button id="update-btn" class="update-btn press" hidden></button>
+    </div>
+    <button class="drawer-item" data-open="feedback"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M8 9h8M8 13h5"/></svg><span data-i18n="feedback"></span></button>
+    <button class="drawer-item" data-open="platform"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span data-i18n="platform"></span></button>
+  </div>
+</aside>
+<div id="app">
+  <main id="scroller">
+    <div id="thread"></div>
+    <section id="empty" hidden>
+      <div class="logo">O</div>
+      <h1 data-i18n="greeting"></h1>
+      <div id="suggestions" class="suggestions"></div>
+    </section>
+  </main>
+  <header id="topbar">
+    <button id="menu" class="icon-btn glass press" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h16"/></svg><span id="menu-dot" class="menu-dot" hidden></span></button>
+    <button id="title" class="title"><span class="pill glass press"><span class="brand">OPhone AI</span><span id="model" class="model"></span></span></button>
+    <button id="view-web" class="view-btn glass press" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span></span></button>
+    <button id="new" class="icon-btn glass press" aria-label="New chat"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+  </header>
+  <div id="banner" class="glass" hidden></div>
+  <button id="jump" class="jump glass press" hidden aria-label="Scroll to bottom"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></button>
+  <footer id="composer">
+    <div id="setup-bar" class="setup-bar glass" role="status" hidden><div class="label"></div><div class="track"><div class="fill"></div></div><div class="step"></div></div>
+    <div class="box glass">
+      <textarea id="input" rows="1" enterkeyhint="send"></textarea>
+      <button id="send" class="send press" disabled aria-label="Send"><svg class="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></button>
+    </div>
+    <div id="hint" class="hint"></div>
+  </footer>
+</div>
+<script src="vendor/markdown-it.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script src="markdown.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

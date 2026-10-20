@@ -57,11 +57,114 @@ public class DeviceAutomationService extends AccessibilityService {
     private Runnable pendingWindowSignal;
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        if(event!=null&&event.getEventType()==AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED&&!(event.getParcelableData() instanceof android.app.Notification)){recordToast(safe(event.getPackageName()),event.getText());return;}
         if(event==null||!(event.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED||event.getEventType()==AccessibilityEvent.TYPE_WINDOWS_CHANGED))return;
         final String sourcePackage=safe(event.getPackageName()),className=safe(event.getClassName());final long eventTime=event.getEventTime();
         if(pendingWindowSignal!=null)eventHandler.removeCallbacks(pendingWindowSignal);
         pendingWindowSignal=()->{String actual=currentPackageName();if(!actual.isEmpty())AgentEvents.get(this).foreground(actual,actual.equals(sourcePackage)?className:"",eventTime);};
         eventHandler.postDelayed(pendingWindowSignal,80);
+    }
+
+    // Toasts arrive as notification-state events without a Notification payload. Only toast text from
+    // apps allowed by the user policy is kept, in a short in-memory ring.
+    private final ArrayDeque<JSONObject> toasts = new ArrayDeque<>();
+    private void recordToast(String pkg, java.util.List<CharSequence> parts) {
+        if (pkg.isEmpty() || !AppControlPolicy.isAllowed(this, pkg) || parts == null || parts.isEmpty()) return;
+        StringBuilder text = new StringBuilder();
+        for (CharSequence part : parts) if (part != null) text.append(text.length() > 0 ? " " : "").append(part);
+        if (text.length() == 0) return;
+        try {
+            JSONObject toast = new JSONObject().put("at", System.currentTimeMillis()).put("package", pkg)
+                    .put("text", text.length() > 300 ? text.substring(0, 300) : text.toString());
+            synchronized (toasts) { toasts.addLast(toast); while (toasts.size() > 20) toasts.removeFirst(); }
+            AgentEvents.get(this).toast(pkg, toast);
+        } catch (Exception ignored) {}
+    }
+    public JSONArray toastsSince(long since) {
+        JSONArray out = new JSONArray();
+        synchronized (toasts) { for (JSONObject t : toasts) if (t.optLong("at") >= since) out.put(t); }
+        return out;
+    }
+
+    /** Cheap UI fingerprint: foreground package plus visible text/description strings. */
+    public JSONObject uiSignature() throws Exception {
+        JSONObject snap = snapshot();
+        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>();
+        JSONArray nodes = snap.optJSONArray("nodes");
+        for (int i = 0; nodes != null && i < nodes.length(); i++) {
+            JSONObject n = nodes.getJSONObject(i);
+            String label = n.optString("text").isEmpty() ? n.optString("desc") : n.optString("text");
+            label = label.replaceAll("\\s+", " ").trim();
+            if (!label.isEmpty()) texts.add(label.length() > 80 ? label.substring(0, 80) : label);
+        }
+        return new JSONObject().put("package", snap.optString("package")).put("nodes", nodes == null ? 0 : nodes.length())
+                .put("texts", new JSONArray(texts));
+    }
+    private static java.util.Set<String> textSet(JSONObject sig) {
+        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
+        JSONArray a = sig.optJSONArray("texts");
+        for (int i = 0; a != null && i < a.length(); i++) set.add(a.optString(i));
+        return set;
+    }
+
+    /** After an action: wait until the UI stops changing (bounded), then summarize what changed. */
+    public JSONObject effect(JSONObject before, long actionAt, long maxWaitMs) throws Exception {
+        long start = System.currentTimeMillis();
+        JSONObject previous = null, current = uiSignature();
+        boolean stable = false;
+        while (System.currentTimeMillis() - start < maxWaitMs) {
+            Thread.sleep(150);
+            previous = current;
+            current = uiSignature();
+            if (previous.toString().equals(current.toString()) && System.currentTimeMillis() - start >= 300) { stable = true; break; }
+        }
+        java.util.Set<String> was = textSet(before), now = textSet(current);
+        JSONArray added = new JSONArray(), removed = new JSONArray();
+        for (String t : now) if (!was.contains(t) && added.length() < 12) added.put(t);
+        for (String t : was) if (!now.contains(t) && removed.length() < 12) removed.put(t);
+        boolean packageChanged = !before.optString("package").equals(current.optString("package"));
+        JSONArray toastList = toastsSince(actionAt);
+        boolean changed = packageChanged || added.length() > 0 || removed.length() > 0 || before.optInt("nodes") != current.optInt("nodes");
+        JSONObject out = new JSONObject().put("changed", changed).put("stable", stable)
+                .put("settle_ms", System.currentTimeMillis() - start)
+                .put("package_before", before.optString("package")).put("package_after", current.optString("package"))
+                .put("added_text", added).put("removed_text", removed).put("toasts", toastList);
+        if (!changed && toastList.length() == 0) out.put("hint", "no_visible_change: the action may have missed its target; inspect get_ui before repeating");
+        return out;
+    }
+
+    /** Poll the UI until a condition holds: text appears, text disappears, a package is foreground, or the UI is stable. */
+    public JSONObject waitFor(String mode, String text, String pkg, long timeoutMs) throws Exception {
+        long start = System.currentTimeMillis();
+        String lastSig = "";
+        long stableSince = start;
+        while (true) {
+            JSONObject snap = snapshot();
+            String current = snap.optString("package");
+            JSONArray matches = new JSONArray();
+            JSONArray nodes = snap.optJSONArray("nodes");
+            if (!text.isEmpty()) {
+                String needle = text.toLowerCase(Locale.ROOT);
+                for (int i = 0; nodes != null && i < nodes.length() && matches.length() < 5; i++) {
+                    JSONObject n = nodes.getJSONObject(i);
+                    if ((n.optString("text") + "\n" + n.optString("desc")).toLowerCase(Locale.ROOT).contains(needle))
+                        matches.put(new JSONObject().put("index", n.optInt("index")).put("text", n.optString("text")).put("desc", n.optString("desc")).put("bounds", n.optString("bounds")).put("clickable", n.optBoolean("clickable")));
+                }
+            }
+            String sig = current + "|" + (nodes == null ? "" : String.valueOf(nodes.toString().hashCode()));
+            long now = System.currentTimeMillis();
+            if (!sig.equals(lastSig)) { lastSig = sig; stableSince = now; }
+            boolean done;
+            if ("disappear".equals(mode)) done = matches.length() == 0;
+            else if ("package".equals(mode)) done = pkg.equals(current);
+            else if ("stable".equals(mode)) done = now - stableSince >= 600;
+            else done = matches.length() > 0 && (pkg.isEmpty() || pkg.equals(current));
+            if (done || now - start >= timeoutMs) {
+                return new JSONObject().put("ok", true).put("matched", done).put("timed_out", !done).put("mode", mode)
+                        .put("elapsed_ms", now - start).put("package", current).put("matches", matches);
+            }
+            Thread.sleep(200);
+        }
     }
 
     @Override
@@ -140,7 +243,15 @@ public class DeviceAutomationService extends AccessibilityService {
         return out;
     }
 
+    /** The task status pill is hidden while the screen is captured, so the AI sees only the phone's own UI. */
     public JSONObject screenshotPngBase64(long timeoutMs) throws Exception {
+        boolean hid = TaskProgress.visible();
+        if (hid) { TaskProgress.hideForCapture(true); Thread.sleep(150); }
+        try { return capturePng(timeoutMs); }
+        finally { if (hid) TaskProgress.hideForCapture(false); }
+    }
+
+    private JSONObject capturePng(long timeoutMs) throws Exception {
         JSONObject out = new JSONObject();
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             out.put("ok", false);
@@ -228,6 +339,7 @@ public class DeviceAutomationService extends AccessibilityService {
         p.moveTo(x, y);
         GestureDescription.StrokeDescription stroke =
                 new GestureDescription.StrokeDescription(p, 0, 80);
+        TaskProgress.passThrough(80);
         return dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
     }
 
@@ -237,6 +349,7 @@ public class DeviceAutomationService extends AccessibilityService {
         p.lineTo(x2, y2);
         GestureDescription.StrokeDescription stroke =
                 new GestureDescription.StrokeDescription(p, 0, Math.max(100, durationMs));
+        TaskProgress.passThrough(Math.max(100, durationMs));
         return dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
     }
 

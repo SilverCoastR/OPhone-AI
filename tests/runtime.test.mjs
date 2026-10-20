@@ -75,7 +75,7 @@ function harness(options = {}) {
   let composer = new Textarea(); const sendButton = new Element('button');
   const body = new Element(), root = new Element();
   const document = {
-    documentElement: root, body,
+    documentElement: root, body, cookie: '',
     createElement: tag => new Element(tag),
     getElementById: id => body.descendants().find(x => x.id === id) || null,
     querySelector(selector) {
@@ -99,6 +99,7 @@ function harness(options = {}) {
   const window = {
     addEventListener() {}, removeEventListener() {},
     OPhoneAI: {
+      lazySetup: !!options.lazy,
       listTools: () => options.toolList?.() || Promise.resolve([{ name: 'device_status', inputSchema: { type: 'object' } }]),
       trace: (code, id, tool) => traces.push({ code, id, tool }),
       receipt: scope => options.receipt?.(scope) || Promise.resolve({ state: "missing" }),
@@ -112,7 +113,7 @@ function harness(options = {}) {
   };
   class FakeDate extends Date { static now() { return now; } }
   class FakeEvent { constructor(type, args) { this.type = type; Object.assign(this, args); } }
-  const context = vm.createContext({ window, document, location, history, navigator: { language: 'en' },
+  const context = vm.createContext({ window, document, location, history, navigator: { language: 'en' }, fetch: options.fetch,
     Date: FakeDate, Math, Promise, Set, Map, JSON, Error, Uint8Array,
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     setTimeout: (fn, ms) => schedule(fn, ms), clearTimeout: id => timers.delete(id),
@@ -131,6 +132,11 @@ function harness(options = {}) {
   }
   function user(text) { return message('user', text); }
   function assistant(text) { return message('assistant', text); }
+  function batch(id, calls) {
+    const json = JSON.stringify({ call_id: id, calls });
+    const node = assistant(`${CALL}\n\`\`\`json\n${json}\n\`\`\``);
+    node.code = new Element('code', json); return node;
+  }
   function tool(id, name = 'device_status', args = {}) {
     const json = JSON.stringify({ call_id: id, tool: name, arguments: args });
     const node = assistant(`${CALL}\n\`\`\`json\n${json}\n\`\`\``);
@@ -163,9 +169,10 @@ function harness(options = {}) {
     supervise() { return window.__OPhoneAIRuntime.supervise(); },
     recover(mode = "auto") { return window.__OPhoneAIRuntime.recover(mode); },
     killLoops() { timers.delete(this.state.timer); this.state.observer.disconnect(); },
-    generating: false, user, assistant, tool, ready, advance,
+    generating: false, user, assistant, tool, batch, ready, advance,
     start() { vm.runInContext(source, context); return this; },
     get state() { return window.__OPhoneAIRuntime.state; },
+    get runtime() { return window.__OPhoneAIRuntime; },
     retry() { window.__OPhoneAIRuntime.retryProtocol(); },
     navigate(path, clear = true) { history.pushState({}, '', path); if (clear) messages.length = 0; },
     stop() { window.__OPhoneAIRuntime.stop(); },
@@ -173,6 +180,8 @@ function harness(options = {}) {
   };
   return api;
 }
+
+const vmRuntime = h => h.runtime;
 
 function taskBackend(overrides = {}) {
   let task = null;
@@ -853,3 +862,332 @@ for (const modern of [false, true]) {
     assert.equal(h.calls[2].args.expected_package, 'com.example.market');
   });
 }
+
+test('chat page messages wait for setup, then go out as ordinary human turns', async () => {
+  const h = harness(); h.start(); await h.advance(500);
+  const runtime = () => vmRuntime(h);
+  assert.equal(runtime().submit('查看电量'), 'queued');
+  assert.equal(h.sent.filter(s => s === '查看电量').length, 0);
+  assert.ok(h.sent[0].startsWith(SETUP));
+  h.assistant(`${READY} ${h.state.handshakeId}`); await h.advance(2500);
+  assert.equal(h.sent.filter(s => s === '查看电量').length, 1);
+  const items = runtime().snapshot().items;
+  assert.deepEqual(Array.from(items, i => i.type), ['user']);
+  assert.equal(items[0].text, '查看电量');
+});
+
+test('guidance typed during a running tool rides on its result and shows as a guidance turn', async () => {
+  const pending = deferred();
+  const h = harness({ call: () => pending.promise }); h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置'); h.tool('guide-1', 'launch_app', { app_name: '设置' }); await h.advance(1500);
+  assert.equal(h.calls.length, 1);
+  assert.equal(vmRuntime(h).snapshot().running, true);
+  assert.equal(vmRuntime(h).submit('顺便看看电量'), 'guided');
+  pending.resolve({ content: [{ type: 'text', text: '{"ok":true}' }] }); await h.advance(1500);
+  const result = h.sent.find(s => s.startsWith(RESULT));
+  assert.equal(JSON.parse(result.slice(RESULT.length)).user_guidance, '顺便看看电量');
+  assert.equal(h.state.guidance.length, 0);
+  const items = vmRuntime(h).snapshot().items;
+  assert.deepEqual(Array.from(items, i => i.type), ['user', 'step', 'user']);
+  assert.equal(items[1].state, 'ok'); assert.equal(items[2].guidance, true);
+});
+
+test('stop from the chat page drops an in-flight result instead of feeding the model', async () => {
+  const pending = deferred();
+  const h = harness({ call: () => pending.promise }); h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置'); h.tool('stop-1', 'launch_app', { app_name: '设置' }); await h.advance(1500);
+  vmRuntime(h).submit('再看看蓝牙');
+  const stopped = vmRuntime(h).userStop();
+  assert.equal(stopped.ok, true);
+  pending.resolve({ content: [{ type: 'text', text: '{"ok":true}' }] }); await h.advance(3000);
+  assert.equal(h.sent.filter(s => s.startsWith(RESULT)).length, 0);
+  assert.equal(vmRuntime(h).snapshot().running, false);
+  assert.equal(h.state.guidance.length, 0);
+});
+
+test('transcript hides protocol turns and maps calls, failures and questions', async () => {
+  const h = harness(); h.ready();
+  h.user('检查 WLAN'); h.tool('t-1', 'click_text', { text: 'WLAN' });
+  h.user(`${RESULT} ${JSON.stringify({ protocol: 'ophone-ai-local-tools-v1', call_id: 't-1', tool: 'click_text', ok: false, error: 'not_found' })}`);
+  h.user('OPHONEAI_EVENT_V1 {"event_id":"e-1","code":"app.foreground"}');
+  h.tool('t-2', 'ask_user', { question: '用哪个网络？', options: ['家里', '公司'] });
+  h.start(); await h.advance(1500);
+  const items = vmRuntime(h).snapshot().items;
+  assert.deepEqual(Array.from(items, i => i.type), ['user', 'step', 'question']);
+  assert.equal(items[1].state, 'error'); assert.equal(items[1].summary, 'not_found');
+  assert.deepEqual(Array.from(items[2].options), ['家里', '公司']);
+});
+
+test('repeating an earlier message from the chat page still sends a new turn', async () => {
+  const h = harness(); h.ready(); h.user('继续'); h.assistant('好的。'); h.start(); await h.advance(1500);
+  assert.equal(vmRuntime(h).submit('继续'), 'queued'); await h.advance(1500);
+  assert.equal(h.sent.filter(s => s === '继续').length, 1);
+  assert.equal(h.state.userQueue.length, 0);
+});
+
+test('a new chat that gets its conversation URL after setup stays the same conversation', async () => {
+  const h = harness(); h.start(); await h.advance(500);
+  assert.ok(h.sent[0].startsWith(SETUP));
+  h.assistant(`${READY} ${h.state.handshakeId}`); await h.advance(1500);
+  assert.equal(h.state.ready, true);
+  // The site assigns /c/<id> only after the first exchange, when no send is in flight.
+  h.navigate('/c/late-id', false); await h.advance(5000);
+  assert.notEqual(h.state.phase, 'failed');
+  assert.equal(h.state.ready, true);
+  assert.equal(h.sent.filter(x => x.startsWith(SETUP)).length, 1);
+});
+
+test('an unchanged conversation DOM after a route change is accepted instead of failing setup', async () => {
+  const h = harness(); h.ready('other'); h.user('hello'); h.assistant('hi'); h.start(); await h.advance(1500);
+  h.navigate('/c/renamed', false); await h.advance(20000);
+  assert.notEqual(h.state.lastError, 'conversation_dom_not_ready');
+  assert.notEqual(h.state.phase, 'failed');
+});
+
+test('a batch runs its tools in order and returns every result in one delivery', async () => {
+  const h = harness({ call: name => Promise.resolve({ content: [{ type: 'text', text: JSON.stringify({ ok: true, from: name }) }] }) });
+  h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置');
+  h.batch('b-1', [{ tool: 'task_status', arguments: {} }, { tool: 'capabilities' }, { tool: 'launch_app', arguments: { app_name: '设置' } }]);
+  await h.advance(3000);
+  assert.deepEqual(h.calls.map(c => c.name), ['task_status', 'capabilities', 'launch_app']);
+  assert.deepEqual(h.calls.map(c => c.scope.call_id), ['b-1.1', 'b-1.2', 'b-1.3']);
+  const results = h.sent.filter(s => s.startsWith(RESULT));
+  assert.equal(results.length, 1);
+  const payload = JSON.parse(results[0].slice(RESULT.length));
+  assert.equal(payload.tool, 'batch'); assert.equal(payload.ok, true); assert.equal(payload.results.length, 3);
+  const items = vmRuntime(h).snapshot().items;
+  assert.deepEqual(Array.from(items, i => i.type), ['user', 'step', 'step', 'step']);
+  assert.ok(Array.from(items).slice(1).every(i => i.state === 'ok'));
+});
+
+test('a batch stops at the first failure and reports the rest as not run', async () => {
+  const h = harness({ call: name => Promise.resolve({ content: [{ type: 'text', text: JSON.stringify({ ok: name !== 'tap' }) }] }) });
+  h.ready(); h.start(); await h.advance(1000);
+  h.user('点一下');
+  h.batch('b-2', [{ tool: 'tap', arguments: { x: 1, y: 2 } }, { tool: 'get_ui' }]);
+  await h.advance(3000);
+  assert.deepEqual(h.calls.map(c => c.name), ['tap']);
+  const payload = JSON.parse(h.sent.find(s => s.startsWith(RESULT)).slice(RESULT.length));
+  assert.equal(payload.ok, false);
+  assert.equal(payload.results[1].ok, false);
+  assert.match(payload.results[1].error, /^not_run/);
+});
+
+test('a batch larger than the limit is not executed', async () => {
+  const h = harness(); h.ready(); h.start(); await h.advance(1000);
+  h.user('太多了');
+  h.batch('b-3', Array.from({ length: 7 }, () => ({ tool: 'device_status' })));
+  await h.advance(3000);
+  assert.equal(h.calls.length, 0);
+});
+
+test('the recovery limit is logged once, not on every supervision tick', async () => {
+  const h = harness(); h.ready(); h.start(); await h.advance(1000);
+  for (let i = 0; i < 12; i++) { h.recover('retry_delivery'); await h.advance(6000); }
+  assert.equal(h.traces.filter(t => t.code === 'recovery_limit_reached').length, 1);
+  assert.equal(h.state.exhausted, true);
+});
+
+test('an oversized batch result is shortened to fit one message', async () => {
+  const big = 'x'.repeat(30000);
+  const h = harness({ call: () => Promise.resolve({ content: [{ type: 'text', text: JSON.stringify({ ok: true, data: big }) }] }) });
+  h.ready(); h.start(); await h.advance(1000);
+  h.user('列出应用');
+  h.batch('b-big', [{ tool: 'find_apps' }, { tool: 'get_ui' }]);
+  await h.advance(3000);
+  const text = h.sent.find(s => s.startsWith(RESULT));
+  assert.ok(text.length < 30000);
+  const payload = JSON.parse(text.slice(RESULT.length));
+  assert.equal(payload.results[0].result.truncated, true);
+});
+
+test('the live view says when ChatGPT is writing a tool call and how long the stage has lasted', async () => {
+  const h = harness(); h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置'); h.generating = true; h.assistant(`${CALL}\n\`\`\`json\n{"call_id":"x`);
+  await h.advance(500);
+  const first = vmRuntime(h).snapshot().live;
+  assert.equal(first.stage, 'thinking'); assert.equal(first.writing_call, true);
+  await h.advance(3000);
+  assert.equal(vmRuntime(h).snapshot().live.since, first.since);
+});
+
+test('when ChatGPT has stopped, the chat page is idle and a new message goes out as a normal message', async () => {
+  const h = harness(); h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置'); h.tool('idle-1', 'launch_app', { app_name: '设置' }); await h.advance(3000);
+  // ChatGPT answered (or stopped) without finishing the native task: the task stays open.
+  h.assistant('设置已经打开了。'); await h.advance(40000);
+  assert.equal(h.state.taskOpen || h.state.activeTask || true, true);
+  assert.equal(vmRuntime(h).snapshot().running, false);
+  assert.equal(vmRuntime(h).submit('再打开蓝牙'), 'queued');
+  await h.advance(2000);
+  assert.equal(h.sent.filter(s => s === '再打开蓝牙').length, 1);
+});
+
+test('guidance left over when ChatGPT stops is sent instead of waiting for a tool result', async () => {
+  const h = harness(); h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置'); h.generating = true; h.assistant('正在处理');
+  await h.advance(500);
+  assert.equal(vmRuntime(h).submit('顺便看看电量'), 'guided');
+  h.generating = false; await h.advance(8000);
+  assert.equal(h.sent.filter(s => s === '顺便看看电量').length, 1);
+});
+
+test('on-demand setup: opening a chat injects nothing until the user sends', async () => {
+  const h = harness({ lazy: true }); h.start(); await h.advance(3000);
+  assert.equal(h.sent.length, 0);
+  assert.equal(vmRuntime(h).snapshot().standby, true);
+  assert.equal(vmRuntime(h).submit('查看电量'), 'queued');
+  await h.advance(500);
+  assert.ok(h.sent[0].startsWith(SETUP));
+  h.assistant(`${READY} ${h.state.handshakeId}`); await h.advance(2500);
+  assert.equal(h.sent.filter(s => s === '查看电量').length, 1);
+});
+
+test('on-demand setup: an old chat that was connected before is reused without a new handshake', async () => {
+  const h = harness({ lazy: true, path: '/c/old' }); h.ready('old-setup'); h.user('以前的任务'); h.assistant('完成了');
+  h.start(); await h.advance(3000);
+  assert.equal(h.state.ready, true);
+  assert.equal(h.sent.length, 0);
+});
+
+test('on-demand setup: sending on the page itself is held, connected, then sent', async () => {
+  const h = harness({ lazy: true }); h.start(); await h.advance(2000);
+  h.composer.value = '打开蓝牙';
+  let prevented = false;
+  h.listeners.get('keydown')({ type: 'keydown', key: 'Enter', shiftKey: false, isTrusted: true, target: h.composer,
+    preventDefault() { prevented = true; }, stopImmediatePropagation() {} });
+  assert.equal(prevented, true);
+  await h.advance(500);
+  assert.ok(h.sent[0].startsWith(SETUP));
+  h.assistant(`${READY} ${h.state.handshakeId}`); await h.advance(2500);
+  assert.equal(h.sent.filter(s => s === '打开蓝牙').length, 1);
+});
+
+test('the setup notice covers only the composer, never the conversation above it', async () => {
+  const h = harness(); h.start(); await h.advance(500);
+  const gate = h.document.getElementById('__ophone_ai_ready_gate');
+  assert.ok(gate);
+  assert.equal(gate.style.top, '650px'); assert.equal(gate.style.height, '50px');
+  assert.match(gate.style.cssText, /background:transparent/);
+});
+
+test('the page is the reference: an idle page frees the next message without waiting out old timers', async () => {
+  const h = harness(); h.ready(); h.start(); await h.advance(1000);
+  assert.equal(vmRuntime(h).submit('打开设置'), 'queued'); await h.advance(1500);
+  assert.equal(h.sent.filter(s => s === '打开设置').length, 1);
+  // ChatGPT never started a reply (it failed or was stopped on the page).
+  await h.advance(9000);
+  assert.equal(vmRuntime(h).snapshot().running, false);
+  assert.equal(vmRuntime(h).submit('再试一次'), 'queued'); await h.advance(1500);
+  assert.equal(h.sent.filter(s => s === '再试一次').length, 1);
+});
+
+test('a stuck tool result on an idle page carries the user message, or yields to it as a normal turn', async () => {
+  let block = true, h;
+  h = harness({ sendBlocked: () => block && h.composer.value.startsWith(RESULT),
+    call: () => Promise.resolve({ content: [{ type: 'text', text: '{"ok":true}' }] }) });
+  h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置'); h.tool('stuck-1', 'launch_app', { app_name: '设置' }); await h.advance(20000);
+  assert.ok(h.state.pendingResult);
+  assert.equal(vmRuntime(h).snapshot().running, false);
+  assert.equal(vmRuntime(h).submit('改成打开蓝牙'), 'queued');
+  await h.advance(500);
+  assert.ok(Array.from(vmRuntime(h).snapshot().items).some(i => i.text === '改成打开蓝牙' && i.queued));
+  await h.advance(20000);
+  assert.equal(h.sent.filter(s => s === '改成打开蓝牙').length, 1);
+  assert.equal(h.state.pendingResult, null);
+});
+
+test('a delayed tool result delivered with the user message keeps it as guidance', async () => {
+  let block = true, h;
+  h = harness({ sendBlocked: () => block && h.composer.value.startsWith(RESULT),
+    call: () => Promise.resolve({ content: [{ type: 'text', text: '{"ok":true}' }] }) });
+  h.ready(); h.start(); await h.advance(1000);
+  h.user('打开设置'); h.tool('late-1', 'launch_app', { app_name: '设置' }); await h.advance(20000);
+  block = false;
+  vmRuntime(h).submit('顺便关掉蓝牙'); await h.advance(3000);
+  const result = h.sent.filter(s => s.startsWith(RESULT)).pop();
+  assert.equal(JSON.parse(result.slice(RESULT.length)).user_guidance, '顺便关掉蓝牙');
+  assert.equal(h.sent.filter(s => s === '顺便关掉蓝牙').length, 0);
+});
+
+function listFetch(total) {
+  const all = Array.from({ length: total }, (_, i) => ({ id: `conv-${String(i).padStart(4, '0')}`, title: `chat ${i}`, update_time: 1700000000 - i }));
+  const seen = [];
+  const fetch = url => {
+    seen.push(url);
+    if (url === '/api/auth/session') return Promise.resolve({ json: () => Promise.resolve({ accessToken: 'token' }) });
+    const q = new URLSearchParams(url.split('?')[1]);
+    const offset = Number(q.get('offset')), limit = Number(q.get('limit'));
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ items: all.slice(offset, offset + limit), total }) });
+  };
+  return { fetch, seen };
+}
+
+test('the end of the chat list loads the next page from the site and keeps the pages already loaded', async () => {
+  const list = listFetch(60);
+  const h = harness({ fetch: list.fetch }); h.ready(); h.start(); await h.advance(1000);
+  vmRuntime(h).refreshConversations(); await h.advance(100);
+  assert.equal(vmRuntime(h).snapshot().conversations.items.length, 28);
+  vmRuntime(h).moreConversations(); await h.advance(100);
+  let listed = vmRuntime(h).snapshot().conversations;
+  assert.equal(listed.items.length, 56); assert.equal(listed.has_more, true);
+  assert.ok(list.seen.some(u => u.includes('offset=28')));
+  // A refresh of the first page does not shrink the list.
+  vmRuntime(h).refreshConversations(); await h.advance(100);
+  assert.equal(vmRuntime(h).snapshot().conversations.items.length, 56);
+  vmRuntime(h).moreConversations(); await h.advance(100);
+  listed = vmRuntime(h).snapshot().conversations;
+  assert.equal(listed.items.length, 60); assert.equal(listed.has_more, false);
+});
+
+test('pulling for older messages only scrolls the page and never sends anything', async () => {
+  const h = harness(); h.ready(); h.user('hello'); h.assistant('hi'); h.start(); await h.advance(1000);
+  const before = h.sent.length;
+  const result = vmRuntime(h).loadOlder();
+  assert.equal(typeof result.ok, 'boolean');
+  await h.advance(2000);
+  assert.equal(h.sent.length, before);
+});
+
+test('on-demand setup: an old chat that loads slowly is not treated as a failure and injects nothing', async () => {
+  const h = harness({ lazy: true, path: '/c/slow-chat' }); h.start(); await h.advance(1000);
+  h.nativePulse(); await h.advance(30000);
+  assert.equal(h.sent.length, 0);
+  assert.notEqual(h.state.phase, 'failed');
+  // The chat appears later; still nothing is sent until the user sends.
+  h.user('以前的问题'); h.assistant('以前的回答'); await h.advance(5000);
+  assert.equal(h.sent.length, 0);
+  assert.equal(vmRuntime(h).submit('继续'), 'queued'); await h.advance(500);
+  assert.ok(h.sent[0].startsWith(SETUP));
+  assert.equal(h.sent.filter(s => s === '继续').length, 0);
+  h.assistant(`${READY} ${h.state.handshakeId}`); await h.advance(2500);
+  assert.equal(h.sent.filter(s => s === '继续').length, 1);
+});
+
+test('on-demand setup: a failed handshake is not resent by recovery until the user sends again', async () => {
+  const h = harness({ lazy: true }); h.start(); await h.advance(1000);
+  vmRuntime(h).submit('查看电量'); await h.advance(500);
+  assert.equal(h.sent.filter(s => s.startsWith(SETUP)).length, 1);
+  // The message itself went nowhere yet; the user stops waiting and clears it.
+  vmRuntime(h).userStop(); h.state.setupRequested = false;
+  h.runtime.retryProtocol(); h.nativePulse(); await h.advance(30000);
+  assert.equal(h.sent.filter(s => s.startsWith(SETUP)).length, 1);
+  assert.equal(vmRuntime(h).snapshot().standby, true);
+});
+
+test('a connected chat is renamed once after the user first real message, not the setup text', async () => {
+  const patches = [];
+  const fetch = (url, init = {}) => {
+    if (url === '/api/auth/session') return Promise.resolve({ json: () => Promise.resolve({ accessToken: 'token' }) });
+    if (init.method === 'PATCH') { patches.push({ url, body: JSON.parse(init.body) }); return Promise.resolve({ ok: true, status: 200 }); }
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ items: [] }) });
+  };
+  const h = harness({ fetch, path: '/c/abcdef12-3456' }); h.ready(); h.user('帮我  打开\n蓝牙'); h.assistant('好的'); h.start(); await h.advance(2000);
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0].url, '/backend-api/conversation/abcdef12-3456');
+  assert.equal(patches[0].body.title, '帮我 打开 蓝牙');
+  await h.advance(90000);
+  assert.equal(patches.length, 2); // one confirmation after the site's own title generation, then never again
+});

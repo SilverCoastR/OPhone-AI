@@ -46,6 +46,7 @@ public class BridgeService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        TaskProgress.track(getApplication());
         startForegroundMode();
 
         kernel = new LocalToolKernel(this);
@@ -112,11 +113,17 @@ public class BridgeService extends Service {
         startForeground(NOTIFICATION_ID, notification);
     }
 
+    // The once-a-day limit lives in UpdateManager; this only gives a long-running service a chance to check.
+    private final android.os.Handler updateTimer = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable updateCheck = new Runnable() { @Override public void run() { UpdateManager.maybeCheck(BridgeService.this); updateTimer.postDelayed(this, 3 * 60 * 60 * 1000L); } };
+    private void scheduleUpdateCheck() { updateTimer.removeCallbacks(updateCheck); updateTimer.postDelayed(updateCheck, 15000); }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForegroundMode();
         if (!running) startServer();
         refreshOverlay();
+        scheduleUpdateCheck();
         return START_STICKY;
     }
 

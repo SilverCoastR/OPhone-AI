@@ -5,6 +5,7 @@ import android.content.Context;
 import android.graphics.*;
 import android.os.*;
 import android.util.Base64;
+import android.net.Uri;
 import android.webkit.*;
 import org.json.*;
 import java.io.ByteArrayOutputStream;
@@ -21,7 +22,9 @@ final class BrowserManager {
     final Context context; final Handler ui=new Handler(Looper.getMainLooper());final LinkedHashMap<String,Tab> tabs=new LinkedHashMap<>();String selected="";
     TerminalJobs.Events events; BrowserActivity activity;
     static final class MediaCandidate {String id="media-"+UUID.randomUUID(),url,kind;long seen=System.currentTimeMillis();Map<String,String> headers=new HashMap<>();}
-    final class Tab {String id="tab-"+UUID.randomUUID(),page="page-"+UUID.randomUUID(),error="";WebView web;boolean loading,fitting,autoFitted;float baseScale;long changed;JSONObject scope=new JSONObject();final LinkedHashMap<String,MediaCandidate> media=new LinkedHashMap<>();}
+    final class Tab {String id="tab-"+UUID.randomUUID(),page="page-"+UUID.randomUUID(),error="";WebView web;boolean loading,fitting,autoFitted;int progress;float baseScale;long changed;JSONObject scope=new JSONObject();final LinkedHashMap<String,MediaCandidate> media=new LinkedHashMap<>();
+        // Set by browser_config: identity and request headers used for this tab's navigations.
+        String userAgentPreset="default";boolean desktop;final LinkedHashMap<String,String> headers=new LinkedHashMap<>();}
     BrowserManager(Context c){context=c;}
     interface Work<T>{T run()throws Exception;}
     <T>T main(Work<T> work)throws Exception {if(Looper.myLooper()==Looper.getMainLooper())return work.run();CountDownLatch done=new CountDownLatch(1);AtomicReference<T> value=new AtomicReference<>();AtomicReference<Exception> error=new AtomicReference<>();ui.post(()->{try{value.set(work.run());}catch(Exception e){error.set(e);}finally{done.countDown();}});if(!done.await(5,TimeUnit.SECONDS))throw new IllegalStateException("browser_main_thread_timeout");if(error.get()!=null)throw error.get();return value.get();}
@@ -31,13 +34,17 @@ final class BrowserManager {
         t.web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){try{url(r.getUrl().toString());return false;}catch(Exception ignored){return true;}}
             @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest r){capture(t,r.getUrl().toString(),r.getRequestHeaders());return super.shouldInterceptRequest(v,r);}
-            @Override public void onPageStarted(WebView v,String u,Bitmap icon){t.page="page-"+UUID.randomUUID();t.loading=true;t.autoFitted=false;t.error="";t.changed=System.currentTimeMillis();v.setInitialScale(0);refresh();}
+            @Override public void onPageStarted(WebView v,String u,Bitmap icon){t.page="page-"+UUID.randomUUID();t.loading=true;t.progress=0;t.autoFitted=false;t.error="";t.changed=System.currentTimeMillis();v.setInitialScale(0);refresh();}
             @Override public void onPageFinished(WebView v,String u){t.loading=false;t.changed=System.currentTimeMillis();if(t.baseScale<=0)t.baseScale=Math.max(.01f,v.getScale());fitToWidth(t);refresh();emit(t,t.error.isEmpty()?"browser.loaded":"browser.failed");}
             @Override public void onScaleChanged(WebView v,float oldScale,float newScale){refresh();}
             @Override public void onReceivedError(WebView v,WebResourceRequest r,WebResourceError e){if(r.isForMainFrame()){t.error=String.valueOf(e.getDescription());t.loading=false;t.fitting=false;t.changed=System.currentTimeMillis();emit(t,"browser.failed");refresh();}}
             @Override public void onReceivedHttpError(WebView v,WebResourceRequest r,WebResourceResponse e){if(r.isForMainFrame()){t.error="HTTP "+e.getStatusCode();refresh();}}
             @Override public boolean onRenderProcessGone(WebView v,RenderProcessGoneDetail detail){t.loading=false;t.fitting=false;t.error="browser_renderer_gone";emit(t,"browser.failed");return true;}
-        });t.web.setWebChromeClient(new WebChromeClient(){@Override public void onReceivedTitle(WebView v,String title){refresh();}});tabs.put(t.id,t);selected=t.id;return t;
+        });t.web.setWebChromeClient(new WebChromeClient(){@Override public void onReceivedTitle(WebView v,String title){refresh();}
+            @Override public void onProgressChanged(WebView v,int value){t.progress=value;refresh();}
+            @Override public boolean onShowFileChooser(WebView v,ValueCallback<Uri[]> callback,FileChooserParams params){return activity!=null&&activity.chooseFile(callback,params);}});
+        // Downloads go to the system (browser or download manager); the agent uses http_request for files it needs.
+        t.web.setDownloadListener((u,agent,disposition,mime,length)->{try{android.content.Intent i=new android.content.Intent(android.content.Intent.ACTION_VIEW,Uri.parse(u)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);context.startActivity(i);}catch(Exception ignored){}});tabs.put(t.id,t);selected=t.id;return t;
     }
     void refresh(){if(activity!=null)activity.refresh();}
     int zoomPercent(Tab t){if(t==null||t.web==null)return 100;float base=t.baseScale>0?t.baseScale:Math.max(.01f,context.getResources().getDisplayMetrics().density),current=Math.max(.01f,t.web.getScale());return Math.max(10,Math.min(500,Math.round(current/base*100)));}
@@ -51,9 +58,62 @@ final class BrowserManager {
     JSONObject state(Tab t)throws Exception{return new JSONObject().put("ok",t.error.isEmpty()).put("tab_id",t.id).put("page_id",t.page).put("url",t.web.getUrl()==null?"":t.web.getUrl()).put("title",t.web.getTitle()).put("loading",t.loading||t.fitting).put("page_loading",t.loading).put("fitting",t.fitting).put("error",t.error).put("changed_at",t.changed);}
     JSONObject tabs(JSONObject a)throws Exception{return main(()->{String op=a.optString("action","list");if("select".equals(op)){selected=tab(a.getString("tab_id")).id;refresh();}else if("close".equals(op)){Tab t=tab(a.getString("tab_id"));tabs.remove(t.id);if(t.web.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)t.web.getParent()).removeView(t.web);t.web.destroy();if(selected.equals(t.id))selected=tabs.isEmpty()?"":tabs.keySet().iterator().next();refresh();}else if(!"list".equals(op))throw new IllegalArgumentException("unsupported_tab_action");JSONArray list=new JSONArray();for(Tab t:tabs.values())list.put(state(t));return new JSONObject().put("ok",true).put("selected",selected).put("tabs",list);});}
     JSONObject open(JSONObject a,JSONObject scope)throws Exception {
-        String target=url(a.getString("url"));Tab t=main(()->{Tab item=a.optBoolean("new_tab",false)||selected.isEmpty()?create():tab(a.optString("tab_id"));selected=item.id;item.scope=new JSONObject(scope.toString());item.loading=true;item.error="";item.web.loadUrl(target);refresh();return item;});
+        String target=url(a.getString("url"));Tab t=main(()->{Tab item=a.optBoolean("new_tab",false)||selected.isEmpty()?create():tab(a.optString("tab_id"));selected=item.id;item.scope=new JSONObject(scope.toString());item.loading=true;item.error="";if(item.headers.isEmpty())item.web.loadUrl(target);else item.web.loadUrl(target,new HashMap<>(item.headers));refresh();return item;});
         long end=System.currentTimeMillis()+Math.max(0,Math.min(12000,a.optInt("wait_ms",8000)));while(System.currentTimeMillis()<end&&main(()->t.loading||t.fitting))Thread.sleep(80);JSONObject result=main(()->state(t));return result.put("navigation_completed",!result.optBoolean("loading"));
     }
+    /* ---------- browser_config: the AI controls the browser's identity and behaviour per tab ---------- */
+
+    static final String[] UA_PRESETS={"default","android_chrome","desktop_chrome","desktop_edge","mac_safari","iphone_safari","ipad_safari","custom"};
+    private static String chromeVersion(String ua){java.util.regex.Matcher m=java.util.regex.Pattern.compile("Chrome/([0-9.]+)").matcher(ua==null?"":ua);return m.find()?m.group(1):"124.0.0.0";}
+    static String userAgentFor(String preset,String webviewDefault){
+        String chrome=chromeVersion(webviewDefault),major=chrome.split("\\.")[0]+".0.0.0";
+        switch(preset){
+            case "android_chrome":return webviewDefault.replace("; wv","").replace(" Version/4.0","");
+            case "desktop_chrome":return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"+major+" Safari/537.36";
+            case "desktop_edge":return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"+major+" Safari/537.36 Edg/"+major;
+            case "mac_safari":return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+            case "iphone_safari":return "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+            case "ipad_safari":return "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+            default:return webviewDefault;
+        }
+    }
+    private static final java.util.Set<String> BLOCKED_HEADERS=new java.util.HashSet<>(Arrays.asList("host","cookie","authorization","proxy-authorization","content-length","connection","transfer-encoding"));
+    private JSONObject configState(Tab t)throws Exception{WebSettings s=t.web.getSettings();CookieManager c=CookieManager.getInstance();
+        JSONObject out=new JSONObject().put("ok",true).put("tab_id",t.id).put("user_agent_preset",t.userAgentPreset).put("user_agent",s.getUserAgentString()).put("desktop_mode",t.desktop)
+                .put("javascript",s.getJavaScriptEnabled()).put("images",!s.getBlockNetworkImage()).put("text_zoom",s.getTextZoom()).put("dom_storage",s.getDomStorageEnabled())
+                .put("popups",s.getJavaScriptCanOpenWindowsAutomatically()).put("media_autoplay",!s.getMediaPlaybackRequiresUserGesture())
+                .put("cookies",c.acceptCookie()).put("third_party_cookies",c.acceptThirdPartyCookies(t.web)).put("headers",new JSONObject(t.headers)).put("presets",new JSONArray(Arrays.asList(UA_PRESETS)));
+        if(Build.VERSION.SDK_INT>=29)out.put("force_dark",s.getForceDark()==WebSettings.FORCE_DARK_ON?"on":s.getForceDark()==WebSettings.FORCE_DARK_OFF?"off":"auto");return out;}
+    JSONObject config(JSONObject a)throws Exception {
+        return main(()->{Tab t=selected.isEmpty()&&!a.has("tab_id")?create():tab(a.optString("tab_id"));WebSettings s=t.web.getSettings();CookieManager cookies=CookieManager.getInstance();
+            if("get".equals(a.optString("action")))return configState(t);
+            if(a.has("user_agent")||a.has("custom_user_agent")){String preset=a.optString("user_agent",a.has("custom_user_agent")?"custom":"default");String def=WebSettings.getDefaultUserAgent(context);
+                if("custom".equals(preset)){String custom=a.optString("custom_user_agent").trim();if(custom.isEmpty()||custom.length()>512||custom.matches(".*[\\r\\n].*"))throw new IllegalArgumentException("custom_user_agent_required_single_line_max_512");s.setUserAgentString(custom);}
+                else if(Arrays.asList(UA_PRESETS).contains(preset))s.setUserAgentString(userAgentFor(preset,def));else throw new IllegalArgumentException("unknown_user_agent_preset");
+                t.userAgentPreset=preset;}
+            if(a.has("desktop_mode")){t.desktop=a.getBoolean("desktop_mode");s.setUseWideViewPort(true);s.setLoadWithOverviewMode(true);
+                if(t.desktop&&!a.has("user_agent")&&!a.has("custom_user_agent")){s.setUserAgentString(userAgentFor("desktop_chrome",WebSettings.getDefaultUserAgent(context)));t.userAgentPreset="desktop_chrome";}
+                if(!t.desktop&&!a.has("user_agent")&&t.userAgentPreset.startsWith("desktop")){s.setUserAgentString(WebSettings.getDefaultUserAgent(context));t.userAgentPreset="default";}}
+            if(a.has("javascript"))s.setJavaScriptEnabled(a.getBoolean("javascript"));
+            if(a.has("images")){boolean on=a.getBoolean("images");s.setLoadsImagesAutomatically(on);s.setBlockNetworkImage(!on);}
+            if(a.has("text_zoom"))s.setTextZoom(Math.max(50,Math.min(300,a.getInt("text_zoom"))));
+            if(a.has("dom_storage"))s.setDomStorageEnabled(a.getBoolean("dom_storage"));
+            if(a.has("popups")){boolean on=a.getBoolean("popups");s.setJavaScriptCanOpenWindowsAutomatically(on);}
+            if(a.has("media_autoplay"))s.setMediaPlaybackRequiresUserGesture(!a.getBoolean("media_autoplay"));
+            if(a.has("force_dark")&&Build.VERSION.SDK_INT>=29){String v=a.getString("force_dark");s.setForceDark("on".equals(v)?WebSettings.FORCE_DARK_ON:"off".equals(v)?WebSettings.FORCE_DARK_OFF:WebSettings.FORCE_DARK_AUTO);}
+            if(a.has("cookies"))cookies.setAcceptCookie(a.getBoolean("cookies"));
+            if(a.has("third_party_cookies"))cookies.setAcceptThirdPartyCookies(t.web,a.getBoolean("third_party_cookies"));
+            if(a.optBoolean("clear_cookies"))cookies.removeAllCookies(null);
+            if(a.optBoolean("clear_cache"))t.web.clearCache(true);
+            if(a.has("accept_language")){String lang=a.getString("accept_language").trim();if(lang.isEmpty())t.headers.remove("Accept-Language");else if(lang.length()>100||!lang.matches("[A-Za-z0-9,;=.\\- ]+"))throw new IllegalArgumentException("invalid_accept_language");else t.headers.put("Accept-Language",lang);}
+            JSONObject extra=a.optJSONObject("headers");
+            if(extra!=null){for(Iterator<String> k=extra.keys();k.hasNext();){String name=k.next(),value=extra.optString(name);if(!name.matches("[A-Za-z0-9-]{1,64}")||BLOCKED_HEADERS.contains(name.toLowerCase(Locale.ROOT)))throw new IllegalArgumentException("header_not_allowed: "+name);
+                if(value.isEmpty())t.headers.remove(name);else if(value.length()>512||value.matches(".*[\\r\\n].*"))throw new IllegalArgumentException("invalid_header_value: "+name);else t.headers.put(name,value);}
+                if(t.headers.size()>12)throw new IllegalArgumentException("at_most_12_headers");}
+            if(a.optBoolean("reload",true)&&t.web.getUrl()!=null){if(t.headers.isEmpty())t.web.reload();else t.web.loadUrl(t.web.getUrl(),new HashMap<>(t.headers));}
+            refresh();return configState(t);});
+    }
+
     private Object eval(Tab t,String source)throws Exception {CountDownLatch done=new CountDownLatch(1);AtomicReference<String> result=new AtomicReference<>();ui.post(()->t.web.evaluateJavascript(source,v->{result.set(v);done.countDown();}));if(!done.await(5,TimeUnit.SECONDS))throw new IllegalStateException("browser_js_timeout");String raw=result.get();if(raw==null||raw.length()>200000)throw new IllegalArgumentException("browser_js_result_too_large");return new JSONTokener(raw).nextValue();}
     private JSONObject evalObject(Tab t,String source)throws Exception {Object value=eval(t,source);if(value instanceof String)value=new JSONTokener((String)value).nextValue();if(!(value instanceof JSONObject))throw new IllegalStateException("browser_js_expected_object");return (JSONObject)value;}
     private Tab checked(JSONObject a)throws Exception{return main(()->{Tab t=tab(a.optString("tab_id"));if(a.has("page_id")&&!a.getString("page_id").equals(t.page))throw new IllegalStateException("stale_browser_page_take_fresh_snapshot");return t;});}
