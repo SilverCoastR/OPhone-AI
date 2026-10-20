@@ -37,7 +37,7 @@ public final class ApiChatActivity extends Activity {
     static boolean inPictureInPicture(){ApiChatActivity a=current.get();return Build.VERSION.SDK_INT>=26&&a!=null&&!a.isDestroyed()&&a.isInPictureInPictureMode();}
     private DirectModelAgent agent;private ApiConversationStore store;private String shownConversation;private WebView web;private volatile boolean pageReady;private ChatUpdate updates;
 
-    @Override protected void onCreate(Bundle state){super.onCreate(state);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);store=new ApiConversationStore(this);shownConversation=store.conversationId();agent=new DirectModelAgent(this);updates=new ChatUpdate(this,()->emit("state"));
+    @Override protected void onCreate(Bundle state){super.onCreate(state);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);store=new ApiConversationStore(this);shownConversation=store.resumeLatest();agent=new DirectModelAgent(this);updates=new ChatUpdate(this,()->emit("state"));
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);UiKit.edgeColors(this,UiKit.canvasColor(this));web=new WebView(this);web.setBackgroundColor(UiKit.canvasColor(this));
         WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setSupportZoom(false);s.setTextZoom(100);s.setMediaPlaybackRequiresUserGesture(true);
         web.setWebViewClient(new WebViewClient(){

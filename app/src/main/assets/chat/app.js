@@ -542,7 +542,7 @@
     state.model = s.model || '';
     state.providerLabel = s.provider_label || '';
     syncUpdate(s.update || { available: !!s.update_available });
-    $('model').textContent = WEB ? 'ChatGPT' : state.model ? state.model.replace(/^deepseek-/, 'DeepSeek ') : (state.providerLabel || 'DeepSeek');
+    $('model').textContent = WEB ? t('webModel') : (state.providerLabel || 'DeepSeek') + (state.model ? ' · ' + state.model : '');
     var banner = $('banner');
     if (WEB) { webBanner(banner, s); syncComposer(); return; }
     if (!state.hasKey) {
@@ -909,7 +909,6 @@
     setTimeout(function () { if (!document.body.classList.contains('drawer-open')) $('scrim').hidden = true; }, 400);
   }
   $('menu').addEventListener('click', openDrawer);
-  $('title').addEventListener('click', openDrawer);
   $('scrim').addEventListener('click', closeDrawer);
   $('search').addEventListener('input', renderDrawer);
   $('search').placeholder = t('search');

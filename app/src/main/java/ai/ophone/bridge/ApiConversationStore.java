@@ -45,8 +45,9 @@ public final class ApiConversationStore {
         try(Cursor c=db.getReadableDatabase().rawQuery("SELECT id,body FROM messages WHERE conversation=? ORDER BY seq",new String[]{id})){
             while(c.moveToNext())try{out.put(new JSONObject(c.getString(1)).put("id",c.getString(0)));}catch(Exception ignored){}}
         return out;}
+    /** The list the user sees: every conversation with content, plus the open one even while it is still empty. */
     synchronized JSONArray conversations(){JSONArray out=new JSONArray();
-        try(Cursor c=db.getReadableDatabase().rawQuery("SELECT id,title,created_at,updated_at,last_provider,message_count FROM conversations ORDER BY updated_at DESC",null)){
+        try(Cursor c=db.getReadableDatabase().rawQuery("SELECT id,title,created_at,updated_at,last_provider,message_count FROM conversations WHERE message_count>0 OR id=? ORDER BY updated_at DESC",new String[]{kv("active_id")})){
             while(c.moveToNext())try{out.put(new JSONObject().put("id",c.getString(0)).put("title",c.getString(1)).put("created_at",c.getLong(2)).put("updated_at",c.getLong(3)).put("last_provider",c.getString(4)).put("message_count",c.getInt(5)));}catch(Exception ignored){}}
         return out;}
 
@@ -58,18 +59,47 @@ public final class ApiConversationStore {
         for(int i=0;i<all.length();i++){JSONObject m=all.getJSONObject(i);if(!"progress".equals(m.optString("role")))kept.put(m);}
         return window(kept);}
 
+    /**
+     * A new chat. An existing empty conversation is reused instead of adding another one, and other empty ones are
+     * removed, so the list never fills with blank "New chat" entries that look like lost history.
+     */
     synchronized String create(String provider){try{
-        String safe=provider==null||!provider.matches("[A-Za-z0-9_-]{1,30}")?"api":provider.toLowerCase();String id="c:api."+safe+"."+UUID.randomUUID().toString().replace("-","");long now=System.currentTimeMillis();
+        String safe=provider==null||!provider.matches("[A-Za-z0-9_-]{1,30}")?"api":provider.toLowerCase();long now=System.currentTimeMillis();
+        String reuse="";try(Cursor c=db.getReadableDatabase().rawQuery("SELECT id FROM conversations WHERE message_count=0 AND NOT EXISTS(SELECT 1 FROM messages WHERE conversation=conversations.id) ORDER BY updated_at DESC",null)){
+            java.util.List<String> empty=new java.util.ArrayList<>();while(c.moveToNext())empty.add(c.getString(0));
+            if(!empty.isEmpty()){reuse=empty.get(0);SQLiteDatabase d=db.getWritableDatabase();d.beginTransaction();
+                try{for(int i=1;i<empty.size();i++)remove(d,empty.get(i));ContentValues v=new ContentValues();v.put("updated_at",now);v.put("last_provider",safe);v.put("title",context.getString(R.string.conversation_new_title));
+                    d.update("conversations",v,"id=?",new String[]{reuse});setKv(d,"active_id",reuse);d.setTransactionSuccessful();}finally{d.endTransaction();}}}
+        if(!reuse.isEmpty()){logActive(reuse,"new_chat_reused_empty");return reuse;}
+        String id="c:api."+safe+"."+UUID.randomUUID().toString().replace("-","");
         ContentValues v=new ContentValues();v.put("id",id);v.put("title",context.getString(R.string.conversation_new_title));v.put("created_at",now);v.put("updated_at",now);v.put("last_provider",safe);v.put("message_count",0);v.put("meta","{}");
         SQLiteDatabase d=db.getWritableDatabase();d.beginTransaction();
         try{d.insertOrThrow("conversations",null,v);setKv(d,"active_id",id);
             // Bound the number of conversations; the oldest ones go first.
             try(Cursor c=d.rawQuery("SELECT id FROM conversations ORDER BY updated_at DESC LIMIT -1 OFFSET "+MAX_CONVERSATIONS,null)){while(c.moveToNext())remove(d,c.getString(0));}
             d.setTransactionSuccessful();}finally{d.endTransaction();}
+        logActive(id,"new_chat");
         return id;
     }catch(Exception e){throw new IllegalStateException(e);}}
 
-    synchronized void select(String id){if(find(id)<0)throw new IllegalArgumentException("conversation_not_found");setKv(db.getWritableDatabase(),"active_id",id);}
+    synchronized void select(String id){if(find(id)<0)throw new IllegalArgumentException("conversation_not_found");if(!id.equals(kv("active_id")))logActive(id,"select");setKv(db.getWritableDatabase(),"active_id",id);}
+
+    /**
+     * Entering an API platform: when the open conversation is empty but another one has newer content, that one is
+     * opened instead, so returning to the platform shows the latest history rather than a blank chat.
+     */
+    synchronized String resumeLatest(){String active=kv("active_id");
+        try(Cursor c=db.getReadableDatabase().rawQuery("SELECT message_count,updated_at FROM conversations WHERE id=?",new String[]{active})){
+            if(c.moveToFirst()&&c.getInt(0)>0)return active;long since=c.moveToFirst()?c.getLong(1):0;
+            try(Cursor n=db.getReadableDatabase().rawQuery("SELECT id FROM conversations WHERE message_count>0 AND updated_at>=? ORDER BY updated_at DESC LIMIT 1",new String[]{String.valueOf(since)})){
+                if(n.moveToFirst()){String latest=n.getString(0);logActive(latest,"resume_latest_instead_of_empty");setKv(db.getWritableDatabase(),"active_id",latest);return latest;}}
+        }catch(Exception ignored){}
+        return conversationId();}
+
+    /** Which conversation became the open one and why (with the caller), for feedback logs. Never logs content. */
+    private void logActive(String id,String reason){StackTraceElement[] at=new Throwable().getStackTrace();String caller="";
+        for(StackTraceElement e:at)if(!e.getClassName().endsWith("ApiConversationStore")){caller=e.getClassName().replaceFirst("^ai\\.ophone\\.bridge\\.","")+"."+e.getMethodName();break;}
+        DetailedDiagnostics.event(context,"info","conversation","","","api_conversation_opened",reason+": "+id.substring(0,Math.min(id.length(),28))+" by "+caller,null);}
     synchronized void setProvider(String provider){try{touch(conversationId(),null,provider);}catch(Exception ignored){}}
     synchronized void append(JSONObject message) throws Exception {append(conversationId(),message);}
     synchronized void append(String id,JSONObject message) throws Exception {
