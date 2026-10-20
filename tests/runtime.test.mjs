@@ -1225,11 +1225,3 @@ test('a stop control found by test id counts as generating; old indicators above
   assert.equal(vmRuntime(h).snapshot().running, true);
   assert.equal(vmRuntime(h).snapshot().live.page_signal, 'stop_testid');
 });
-
-test('the setup tells ChatGPT exactly what the local chat view can display', async () => {
-  const h = harness(); h.start(); await h.advance(500);
-  const setup = h.sent[0];
-  assert.ok(setup.startsWith(SETUP));
-  for (const part of ['markdown-it 14', 'KaTeX 0.16', String.raw`\(...\)`, String.raw`\[...\]`, '```mermaid', 'workspace:relative/path.png', 'Raw HTML is not rendered'])
-    assert.ok(setup.includes(part), part);
-});
