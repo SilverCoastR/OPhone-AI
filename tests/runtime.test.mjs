@@ -13,7 +13,8 @@ const RESULT = 'OPHONEAI_RESULT_V1';
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
 function harness(options = {}) {
-  let now = 1000, seq = 0, messageSeq = 0;
+  let now = 1000, seq = 0, messageSeq = 0, order = 0;
+  const extraButtons = [], thinkingNodes = [];
   const timers = new Map(), storage = new Map(options.storage || []);
   const traces = [];
   const messages = [], calls = [], sent = [], listeners = new Map();
@@ -24,8 +25,9 @@ function harness(options = {}) {
     constructor(tag = 'div', text = '', attrs = {}) {
       this.tagName = tag.toUpperCase(); this.textContent = text;
       this.attrs = attrs; this.children = []; this.style = {}; this.dataset = {};
-      this.disabled = false; this.events = new Map();
+      this.disabled = false; this.events = new Map(); this.order = ++order;
     }
+    compareDocumentPosition(other) { return other.order > this.order ? 4 : 2; }
     get innerText() { return this.style.display === 'none' ? this.textContent : this.renderedText ?? this.textContent; }
     getAttribute(name) { return this.attrs[name] ?? null; }
     setAttribute(name, value) { this.attrs[name] = value; }
@@ -82,12 +84,13 @@ function harness(options = {}) {
       if (selector === '#prompt-textarea') return options.noComposer ? null : composer;
       if (selector.startsWith('button[data-testid="send-button"]')) return options.sendReady?.(composer, now) === false ? null : sendButton;
       if (selector.startsWith('button[data-testid="stop-button"]')) return api.generating ? new Element('button') : null;
+      if (selector === 'main') return { querySelectorAll: () => thinkingNodes.slice() };
       return null;
     },
     querySelectorAll(selector) {
       if (selector.includes('data-chatgpt-search-unit-key$=')) return options.modern ? messages : [];
       if (selector === '[data-message-author-role]') return messages;
-      if (selector === 'button') return [sendButton];
+      if (selector === 'button') return [sendButton].concat(extraButtons);
       return [];
     },
     addEventListener: (name, fn) => listeners.set(name, fn),
@@ -158,7 +161,8 @@ function harness(options = {}) {
     }
     now = end; await microtasks();
   }
-  const api = { messages, sent, calls, traces, nativeRequests, storage, listeners, document,
+  const api = { messages, sent, calls, traces, nativeRequests, storage, listeners, document, extraButtons, thinkingNodes,
+    element: (tag, text, attrs) => new Element(tag, text, attrs),
     get composer() { return composer; },
     replaceComposer() { const value=composer.value; composer=new Textarea(); composer.value=value; },
     addTurnToolbar(node) { const turn=new Element(); turn.appendChild(node);
@@ -1076,8 +1080,11 @@ test('the page is the reference: an idle page frees the next message without wai
   const h = harness(); h.ready(); h.start(); await h.advance(1000);
   assert.equal(vmRuntime(h).submit('打开设置'), 'queued'); await h.advance(1500);
   assert.equal(h.sent.filter(s => s === '打开设置').length, 1);
-  // ChatGPT never started a reply (it failed or was stopped on the page).
+  // ChatGPT never started a reply (it failed or was stopped on the page): still "working" for a while, since the
+  // site may be thinking without a recognizable signal, then idle.
   await h.advance(9000);
+  assert.equal(vmRuntime(h).snapshot().running, true);
+  await h.advance(37000);
   assert.equal(vmRuntime(h).snapshot().running, false);
   assert.equal(vmRuntime(h).submit('再试一次'), 'queued'); await h.advance(1500);
   assert.equal(h.sent.filter(s => s === '再试一次').length, 1);
@@ -1190,4 +1197,39 @@ test('a connected chat is renamed once after the user first real message, not th
   assert.equal(patches[0].body.title, '帮我 打开 蓝牙');
   await h.advance(90000);
   assert.equal(patches.length, 2); // one confirmation after the site's own title generation, then never again
+});
+
+test('a thinking indicator after the newest user turn keeps the chat page busy and shows the page line', async () => {
+  const h = harness(); h.ready(); h.start(); await h.advance(1000);
+  vmRuntime(h).submit('分析一下'); await h.advance(1500);
+  h.thinkingNodes.push(h.element('div', '正在思考', { class: 'loading-shimmer' }));
+  await h.advance(60000);
+  const snap = vmRuntime(h).snapshot();
+  assert.equal(snap.running, true);
+  assert.equal(snap.live.page_signal, 'thinking_indicator');
+  assert.deepEqual(Array.from(snap.live.page_lines), ['正在思考']);
+  assert.equal(vmRuntime(h).submit('顺便看看电量'), 'guided');
+  h.thinkingNodes.length = 0; await h.advance(200);
+  assert.equal(vmRuntime(h).snapshot().live.page_signal, '');
+});
+
+test('a stop control found by test id counts as generating; old indicators above the newest turn do not', async () => {
+  const h = harness(); h.ready();
+  const stale = h.element('div', '旧的', { class: 'loading-shimmer' });
+  h.user('你好'); h.assistant('你好！'); h.start(); await h.advance(1000);
+  h.thinkingNodes.push(stale);
+  await h.advance(60000);
+  assert.equal(vmRuntime(h).snapshot().running, false);
+  h.extraButtons.push(h.element('button', '', { 'data-testid': 'composer-stop-button' }));
+  await h.advance(500);
+  assert.equal(vmRuntime(h).snapshot().running, true);
+  assert.equal(vmRuntime(h).snapshot().live.page_signal, 'stop_testid');
+});
+
+test('the setup tells ChatGPT exactly what the local chat view can display', async () => {
+  const h = harness(); h.start(); await h.advance(500);
+  const setup = h.sent[0];
+  assert.ok(setup.startsWith(SETUP));
+  for (const part of ['markdown-it 14', 'KaTeX 0.16', String.raw`\(...\)`, String.raw`\[...\]`, '```mermaid', 'workspace:relative/path.png', 'Raw HTML is not rendered'])
+    assert.ok(setup.includes(part), part);
 });
