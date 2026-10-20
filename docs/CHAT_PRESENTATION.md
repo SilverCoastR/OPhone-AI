@@ -46,7 +46,3 @@ Since 1.10 the ChatGPT platform again shows OPhone AI's own chat page (`assets/c
 The runtime also exposes `submit`, `userStop` and `snapshot` (used by tests and by the chat page's `provider=web` mode, which is currently not wired into an activity).
 
 The fixture in `tests/chat-presentation.html` exercises presentation behavior against `ophone-ai-runtime.js` without invoking phone actions.
-
-## Display contract given to the models
-
-Both the API platforms (`DirectModelPrompt.DISPLAY`) and ChatGPT web (setup item 28) receive the same description of the local renderer, so replies use only what it shows: CommonMark via markdown-it 14 with GFM tables, strikethrough, task lists and auto-links; no raw HTML, footnotes, definition lists or emoji shortcodes; single newlines do not break lines; KaTeX 0.16 math with `$...$`/`\(...\)` inline and `$$...$$`/`\[...\]` display; fenced code with the bundled highlight.js languages; ```mermaid diagrams (Mermaid 11, strict); images only as data URIs or `workspace:` files; tables of about six columns. ChatGPT is also told that images, files and canvases on its page are not shown in the local view. Keep this text in step with `assets/chat/markdown.js`.
