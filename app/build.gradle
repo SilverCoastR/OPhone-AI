@@ -9,8 +9,8 @@ android {
         testInstrumentationRunner "ai.ophone.bridge.NativeAgentChecks"
         minSdkVersion 24
         targetSdkVersion 33
-        versionCode 31
-        versionName "1.10.13"
+        versionCode 32
+        versionName "1.10.14"
         // Address that receives feedback reports from the in-app feedback page; empty until decided.
         buildConfigField "String", "FEEDBACK_EMAIL", '"ooorrrt88@gmail.com"'
     }

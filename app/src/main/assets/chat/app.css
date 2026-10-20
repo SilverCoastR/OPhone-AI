@@ -388,3 +388,14 @@ body.drawer-open #scroller { overflow: hidden; touch-action: none; }
 .setup-bar .step { margin-top: 4px; font-size: 12.5px; color: var(--muted); }
 body.setup-on #scroller { padding-bottom: 230px; scroll-padding-bottom: 230px; }
 #banner .msg .why { font-size: 13.5px; line-height: 1.4; color: var(--muted); }
+
+/* Header: only the menu on the left and actions on the right. The empty chat carries the name in its middle. */
+#topbar .spacer { flex: 1; }
+#empty { justify-content: space-between; }
+#empty .hero { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 0 24px; }
+#empty .hero .logo { margin-bottom: 16px; }
+#empty .hero .brand { font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+#empty .hero-model { margin-top: 8px; padding: 4px 12px; border-radius: 999px; background: var(--fill-strong); color: var(--muted); font-size: 13px; font-weight: 500; }
+#empty .hero-model:empty { display: none; }
+#empty .hero .greeting { margin: 14px 0 0; color: var(--muted); font-size: 16px; }
+#empty .suggestions { margin: 0 auto; }

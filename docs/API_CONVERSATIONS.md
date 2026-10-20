@@ -9,3 +9,9 @@ Users can create, reopen and delete conversations, and act on single messages: c
 Conversation content is independent from the selected provider, so switching providers does not make the local history unreadable. Credentials are stored separately through the model settings and are never written into the conversation file.
 
 Tool progress is appended as structured status and rendered separately from ordinary assistant text. This keeps the model's reasoning, tool calls, events, and final response inspectable without filling the conversation with raw protocol JSON.
+
+## Open conversation and empty chats
+
+- "New chat" reuses an existing empty conversation instead of adding another; other empty conversations are removed. The list shows every conversation with content plus the open one.
+- Entering an API platform (`ApiChatActivity` start) calls `resumeLatest()`: when the open conversation is empty and another conversation has newer content, that one is opened, so returning from another platform never lands on a blank chat that looks like lost history.
+- Every change of the open conversation is logged as `api_conversation_opened` (reason, short ID, calling class and method; never content) for feedback logs.
