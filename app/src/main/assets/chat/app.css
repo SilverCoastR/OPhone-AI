@@ -237,9 +237,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 /* Empty state: large title. */
 #empty { min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; padding: 24px 18px 8px; }
 #empty .logo {
-  width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; margin-bottom: 18px;
-  background: linear-gradient(145deg, #5ac8fa, #007aff 55%, #5856d6); color: #fff; font-weight: 700; font-size: 30px;
-  box-shadow: 0 12px 28px rgba(0, 122, 255, .3), inset 0 1px 0 rgba(255,255,255,.5);
+  width: 72px; height: 72px; border-radius: 50%; display: block; margin-bottom: 18px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .22);
 }
 #empty h1 { font-size: 34px; line-height: 1.12; font-weight: 700; letter-spacing: -.03em; margin: 0 0 22px; }
 

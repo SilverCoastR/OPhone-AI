@@ -17,6 +17,8 @@
     <application
         android:name=".OPhoneAIApplication"
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
@@ -107,6 +109,8 @@
 
         <activity android:name=".MemoryActivity" android:exported="false" />
         <activity android:name=".AboutActivity" android:exported="false" android:launchMode="singleTop" />
+        <activity android:name=".ToolsActivity" android:exported="false" />
+        <activity android:name=".ShareActivity" android:exported="false" />
         <activity android:name=".ScheduleActivity" android:exported="false" android:launchMode="singleTop" />
         <activity android:name=".ScheduleEditActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".WebPageActivity" android:exported="false"

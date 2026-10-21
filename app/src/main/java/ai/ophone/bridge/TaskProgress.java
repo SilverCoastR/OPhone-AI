@@ -290,5 +290,5 @@ final class TaskProgress {
             "task_finish","작업 완료","task_set_criteria","완료 조건 설정","capabilities","기능 확인","memory_search","기억 찾기","memory_save","기억하기","android_intent","시스템 기능","android_info","시스템 상태",
             "android_control","기기 제어","ask_user","질문하기","miniapp_save","미니 앱 저장","miniapp_open","미니 앱 열기","workbench_file","파일");
     }
-    private static String label(String name){Map<String,String> m=LABELS.get(UiKit.language());return m!=null&&m.containsKey(name)?m.get(name):name.replace('_',' ');}
+    static String label(String name){Map<String,String> m=LABELS.get(UiKit.language());return m!=null&&m.containsKey(name)?m.get(name):name.replace('_',' ');}
 }

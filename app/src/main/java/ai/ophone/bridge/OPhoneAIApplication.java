@@ -10,7 +10,7 @@ public final class OPhoneAIApplication extends android.app.Application {
         // Every screen, in every process: no black letterbox beside the display cutout in landscape.
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks(){
             public void onActivityCreated(android.app.Activity a,android.os.Bundle b){UiKit.fitCutout(a);themes.put(a,UiKit.themeMode(a));}
-            public void onActivityStarted(android.app.Activity a){}
+            public void onActivityStarted(android.app.Activity a){if(SecondaryChrome.wants(a))SecondaryChrome.install(a);}
             public void onActivityResumed(android.app.Activity a){UiKit.immersive(a);
                 // Night mode changed in Settings while this screen was open: rebuild it in the new mode.
                 String applied=themes.get(a);if(applied!=null&&!applied.equals(UiKit.reloadThemeMode(a))){themes.remove(a);a.recreate();}}public void onActivityPaused(android.app.Activity a){}

@@ -515,7 +515,10 @@ public class ChatActivity extends Activity {
                 else if ("about".equals(target)) startActivity(new Intent(ChatActivity.this, AboutActivity.class));
                 else if ("schedules".equals(target)) startActivity(new Intent(ChatActivity.this, ScheduleActivity.class));
                 else if ("feedback".equals(target)) startActivity(new Intent(ChatActivity.this, FeedbackActivity.class));
-                else if ("platform".equals(target)) exitPlatform();
+                else if ("platform".equals(target)) startActivity(new Intent(ChatActivity.this, PlatformActivity.class)
+                        .putExtra(PlatformPreference.EXTRA_SHOW_CHOOSER, true).putExtra(PlatformActivity.EXTRA_SWITCH_FROM, PlatformSession.CHATGPT));
+                else if ("tools".equals(target)) startActivity(new Intent(ChatActivity.this, ToolsActivity.class));
+                else if ("share".equals(target)) startActivity(new Intent(ChatActivity.this, ShareActivity.class));
                 else if ("browser".equals(target)) {
                     try { WorkbenchClient.get(ChatActivity.this).showBrowser(); }
                     catch (Exception e) { Toast.makeText(ChatActivity.this, e.getMessage(), Toast.LENGTH_LONG).show(); }
@@ -1235,6 +1238,8 @@ public class ChatActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        String switchTo = PlatformSession.takeSwitchRequest();
+        if (switchTo != null) { leaveTo(switchTo); return; }
         currentActivity = new WeakReference<>(this);
         enforceViewLayers();
         if (webView != null) { webView.removeCallbacks(modeSync); webView.postDelayed(modeSync, 1500L); }
@@ -1476,6 +1481,25 @@ public class ChatActivity extends Activity {
 
     private void startBridgeService() {
         startService(new Intent(this, BridgeService.class));
+    }
+
+    /** Chosen in the platform chooser: the same cleanup as leaving, then straight into the other platform. */
+    private void leaveTo(String provider) {
+        stopPlatform();
+        PlatformSession.switchTo(this, provider);
+        startActivity(new Intent(this, PlatformPreference.target(this, provider).activity));
+        finish();
+    }
+
+    private void stopPlatform() {
+        bridgeAllowed = false;
+        if (webView != null) {
+            webView.evaluateJavascript("(function(){try{var b=document.querySelector('[data-testid=stop-button],button[aria-label*=Stop],button[aria-label*=停止]');if(b)b.click();if(window.__OPhoneAIRuntime&&window.__OPhoneAIRuntime.stop)window.__OPhoneAIRuntime.stop();}catch(e){}return true;})()", null);
+            webView.stopLoading();
+            webView.loadUrl("about:blank");
+        }
+        PlatformSession.cancelProvider(this, PlatformSession.CHATGPT);
+        PlatformPreference.clear(this);
     }
 
     private void exitPlatform() {

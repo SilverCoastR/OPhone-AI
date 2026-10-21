@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/ophone-ai-icon.png" width="128" height="128" alt="OPhone AI icon">
+
 # OPhone AI
 
 **An open-source Android agent runtime that lets AI understand, operate, and verify work on a phone.**

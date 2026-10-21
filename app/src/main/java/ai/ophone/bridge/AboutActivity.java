@@ -28,8 +28,8 @@ public final class AboutActivity extends Activity {
         ScrollView scroll=new ScrollView(this);LinearLayout page=UiKit.page(this);scroll.addView(page,new ScrollView.LayoutParams(-1,-2));
         // App identity
         LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setGravity(Gravity.CENTER_HORIZONTAL);hero.setPadding(0,UiKit.dp(this,24),0,UiKit.dp(this,18));
-        TextView icon=new TextView(this);icon.setText("O");icon.setTextSize(40);icon.setTypeface(Typeface.DEFAULT_BOLD);icon.setTextColor(0xFFFFFFFF);icon.setGravity(Gravity.CENTER);
-        GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xFF5AC8FA,0xFF007AFF,0xFF5856D6});g.setCornerRadius(UiKit.dp(this,24));icon.setBackground(g);icon.setElevation(UiKit.dp(this,8));
+        android.widget.ImageView icon=new android.widget.ImageView(this);icon.setImageResource(R.drawable.ophone_ai_logo);icon.setContentDescription(getString(R.string.app_name));icon.setElevation(UiKit.dp(this,8));
+        icon.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);GradientDrawable round=new GradientDrawable();round.setShape(GradientDrawable.OVAL);round.setColor(0xFF111111);icon.setBackground(round);
         hero.addView(icon,new LinearLayout.LayoutParams(UiKit.dp(this,92),UiKit.dp(this,92)));
         TextView name=new TextView(this);name.setText(R.string.app_name);name.setTextSize(28);name.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));name.setTextColor(UiKit.primaryTextColor(this));name.setPadding(0,UiKit.dp(this,14),0,0);hero.addView(name);
         TextView ver=UiKit.body(this,getString(R.string.about_version,BuildConfig.VERSION_NAME));ver.setTextSize(15);hero.addView(ver);
@@ -52,7 +52,7 @@ public final class AboutActivity extends Activity {
 
         page.addView(UiKit.section(this,getString(R.string.about_section_project)));
         LinearLayout links=UiKit.card(this);links.setPadding(0,UiKit.dp(this,4),0,UiKit.dp(this,4));
-        link(links,R.string.about_github,UpdateManager.REPO_URL);link(links,R.string.about_releases,UpdateManager.RELEASES_URL);link(links,R.string.about_issues,UpdateManager.REPO_URL+"/issues");
+        link(links,R.string.about_github,ShareActivity.projectPage());link(links,R.string.about_releases,UpdateManager.RELEASES_URL);link(links,R.string.about_issues,UpdateManager.REPO_URL+"/issues");
         Button feedback=UiKit.actionButton(this,getString(R.string.feedback_title));feedback.setOnClickListener(v->startActivity(new Intent(this,FeedbackActivity.class)));links.addView(feedback,new LinearLayout.LayoutParams(-1,-2));
         page.addView(links,UiKit.cardParams(this));
         TextView license=UiKit.body(this,getString(R.string.about_license));license.setTextSize(12.5f);license.setGravity(Gravity.CENTER);license.setPadding(0,UiKit.dp(this,8),0,0);page.addView(license);

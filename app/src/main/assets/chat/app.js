@@ -14,7 +14,7 @@
 
   var STRINGS = {
     zh: {
-      schedules: '定时任务', newChat: '新对话', about: '关于与更新', feedback: '反馈问题', browser: '内置浏览器', model: '模型与 API Key', settings: '设置', platform: '切换平台',
+      tools: '内置工具', share: '分享', schedules: '定时任务', newChat: '新对话', about: '关于与更新', feedback: '反馈问题', browser: '内置浏览器', model: '模型与 API Key', settings: '设置', platform: '切换平台',
       search: '搜索对话', greeting: '有什么可以帮你？', placeholder: '给 OPhone AI 发消息或布置手机任务',
       placeholderRunning: '任务进行中，可发送补充指令…', copy: '复制', copied: '已复制', guidance: '补充指令',
       thinking: '正在思考', working: '正在处理', done: '已处理', steps: '个步骤', stepsDone: '已完成 {n} 个步骤', errors: '{n} 个出错',
@@ -43,7 +43,7 @@
       why_default: '自动处理已暂停。反馈时请附上错误代码和反馈日志（日志里有 runtime_stalled 记录）。'
     },
     en: {
-      schedules: 'Scheduled tasks', newChat: 'New chat', about: 'About & updates', feedback: 'Send feedback', browser: 'Browser', model: 'Model & API key', settings: 'Settings', platform: 'Switch platform',
+      tools: 'Built-in tools', share: 'Share', schedules: 'Scheduled tasks', newChat: 'New chat', about: 'About & updates', feedback: 'Send feedback', browser: 'Browser', model: 'Model & API key', settings: 'Settings', platform: 'Switch platform',
       search: 'Search chats', greeting: 'What can I help with?', placeholder: 'Message OPhone AI or give the phone a task',
       placeholderRunning: 'Task running — send extra guidance…', copy: 'Copy', copied: 'Copied', guidance: 'Guidance',
       thinking: 'Thinking', working: 'Working', done: 'Done', steps: 'steps', stepsDone: 'Completed {n} steps', errors: '{n} failed',
@@ -72,7 +72,7 @@
       why_default: 'Automatic handling is paused. When reporting, include the error code and the feedback log (it has a runtime_stalled entry).'
     },
     ja: {
-      schedules: 'スケジュール', newChat: '新しいチャット', about: '情報とアップデート', feedback: 'フィードバック', browser: 'ブラウザ', model: 'モデルと API キー', settings: '設定', platform: 'プラットフォーム切替',
+      tools: '内蔵ツール', share: '共有', schedules: 'スケジュール', newChat: '新しいチャット', about: '情報とアップデート', feedback: 'フィードバック', browser: 'ブラウザ', model: 'モデルと API キー', settings: '設定', platform: 'プラットフォーム切替',
       search: 'チャットを検索', greeting: '何をお手伝いしましょうか？', placeholder: 'OPhone AI にメッセージ、またはスマホのタスクを指示',
       placeholderRunning: 'タスク実行中 — 追加の指示を送信…', copy: 'コピー', copied: 'コピーしました', guidance: '追加の指示',
       thinking: '考え中', working: '処理中', done: '完了', steps: 'ステップ', stepsDone: '{n} ステップ完了', errors: '{n} 件失敗',
@@ -101,7 +101,7 @@
       why_default: '自動処理を一時停止しています。報告の際はエラーコードとフィードバックログ（runtime_stalled の記録を含む）を添えてください。'
     },
     ko: {
-      schedules: '예약 작업', newChat: '새 채팅', about: '정보 및 업데이트', feedback: '피드백 보내기', browser: '브라우저', model: '모델 및 API 키', settings: '설정', platform: '플랫폼 전환',
+      tools: '내장 도구', share: '공유', schedules: '예약 작업', newChat: '새 채팅', about: '정보 및 업데이트', feedback: '피드백 보내기', browser: '브라우저', model: '모델 및 API 키', settings: '설정', platform: '플랫폼 전환',
       search: '채팅 검색', greeting: '무엇을 도와드릴까요?', placeholder: 'OPhone AI에게 메시지를 보내거나 휴대폰 작업을 맡기세요',
       placeholderRunning: '작업 진행 중 — 추가 지시 보내기…', copy: '복사', copied: '복사됨', guidance: '추가 지시',
       thinking: '생각 중', working: '처리 중', done: '완료', steps: '단계', stepsDone: '{n}단계 완료', errors: '{n}개 실패',
