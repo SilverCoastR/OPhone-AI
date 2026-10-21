@@ -75,3 +75,12 @@ The page gets the edge touches as follows (`EdgeDrawer`):
 - **Android 10+:** a 200 dp band of each edge, a little below the middle, is excluded from the system back gesture (the most Android allows per edge).
 - **Android 14+:** everywhere else on the edge, the system back gesture's progress and edge drive the same drag (predictive back, opted in for the two chat activities). Since the app compiles for API 33, the callback is reached by reflection.
 - **Older versions and button navigation:** Back opens the drawer without following a finger.
+
+## Drawer screens
+
+The drawer holds: Built-in tools, Scheduled tasks, Settings, About & updates, Send feedback, Share, and Switch platform.
+
+- **Built-in tools** (`ToolsActivity`) lists every tool the AI has, grouped. Groups with a screen of their own open it: the built-in browser (Android 9+), AI memory, and the mini apps. The other groups are grey because only the AI calls them during a task. The tool activity log is linked at the bottom.
+- **Share** (`ShareActivity`) sends either the GitHub project page in the phone's language (the translated README for Chinese, Japanese and Korean; the English front page for every other language) or the always-latest APK link (`releases/latest/download/OPhone-AI.apk`). Targets are WeChat, QQ, Weibo, Telegram, WhatsApp, X, Facebook, LINE, KakaoTalk, email and SMS, plus "More apps…" (the system sheet) and Copy link. An installed app receives the text directly. If the app is missing but has a public web share page, that page opens in the built-in browser; otherwise the target is grey.
+- **Switch platform** opens the platform chooser without leaving the current platform. Each API platform has its own "Model & API key" button there, which replaces the former drawer item. Choosing the current platform goes back. Choosing another hands the switch back to the chat screen (`PlatformSession.requestSwitch`), which does the usual cleanup and opens the new platform. API tasks are parked for handoff, as before.
+- Every screen opened from the drawer, and the screens it opens, gets a back button at the top left and a swipe-back from either screen edge (`SecondaryChrome`, installed from the application's lifecycle callbacks). The screen slides away with the finger and goes back past a third of the width or after a fling. On Android 10+ a 200 dp band of each edge is reserved for this; elsewhere the system back gesture still goes back.

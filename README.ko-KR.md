@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/ophone-ai-icon.png" width="128" height="128" alt="OPhone AI icon">
+
 # OPhone AI
 
 **AI가 Android 휴대폰의 상태를 이해하고, 조작하고, 작업 결과를 검증할 수 있게 하는 오픈 소스 에이전트 런타임입니다.**

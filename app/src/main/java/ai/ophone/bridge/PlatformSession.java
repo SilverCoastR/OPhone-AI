@@ -18,6 +18,10 @@ final class PlatformSession {
     /** Leaving a platform: API work is parked for a possible handoff, ChatGPT web work is ended. */
     static void leave(Context context,String old){if(old==null||old.isEmpty())return;ModelProvider p=ModelProvider.forPlatform(old);if(p!=null){DirectModelAgent.stopProvider(old);parkApiTasks(context,p.label);}else cancelProvider(context,old);}
     /** ChatGPT web and the API platforms never share work; API platforms hand off to each other. */
+    /** Chosen in the platform chooser opened from a chat ("Switch platform"); the chat does the switch when it is back. */
+    private static volatile String switchRequest;
+    static void requestSwitch(String provider){switchRequest=provider;}
+    static String takeSwitchRequest(){String p=switchRequest;switchRequest=null;return p;}
     static void switchTo(Context context,String provider){String previous=PlatformPreference.get(context);
         if(ModelProvider.isApiPlatform(provider)){cancelProvider(context,CHATGPT);if(ModelProvider.isApiPlatform(previous)&&!previous.equals(provider))leave(context,previous);}
         else for(ModelProvider p:ModelProvider.ALL)cancelProvider(context,p.platform);

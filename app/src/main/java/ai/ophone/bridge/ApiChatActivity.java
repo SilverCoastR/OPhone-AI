@@ -99,7 +99,9 @@ public final class ApiChatActivity extends Activity {
             else if("about".equals(target))startActivity(new Intent(ApiChatActivity.this,AboutActivity.class));
             else if("schedules".equals(target))startActivity(new Intent(ApiChatActivity.this,ScheduleActivity.class));
             else if("feedback".equals(target))startActivity(new Intent(ApiChatActivity.this,FeedbackActivity.class));
-            else if("platform".equals(target))exitPlatform();
+            else if("platform".equals(target))startActivity(new Intent(ApiChatActivity.this,PlatformActivity.class).putExtra(PlatformPreference.EXTRA_SHOW_CHOOSER,true).putExtra(PlatformActivity.EXTRA_SWITCH_FROM,agent.provider().platform));
+            else if("tools".equals(target))startActivity(new Intent(ApiChatActivity.this,ToolsActivity.class));
+            else if("share".equals(target))startActivity(new Intent(ApiChatActivity.this,ShareActivity.class));
             else if("browser".equals(target))try{WorkbenchClient.get(ApiChatActivity.this).showBrowser();}catch(Exception e){Toast.makeText(ApiChatActivity.this,e.getMessage(),Toast.LENGTH_LONG).show();}
         });}
         @JavascriptInterface public void openLink(String url){ui(()->openExternal(url));}
@@ -139,7 +141,10 @@ public final class ApiChatActivity extends Activity {
     private void openExternal(String url){if(url==null||!(url.startsWith("https://")||url.startsWith("http://"))||url.startsWith(ORIGIN))return;WebPageActivity.open(this,url);}
     private void exitPlatform(){agent.exitPlatform();startActivity(new Intent(this,PlatformActivity.class).putExtra(PlatformPreference.EXTRA_SHOW_CHOOSER,true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));finish();}
     private void ui(Runnable r){runOnUiThread(()->{if(!isFinishing()&&!(Build.VERSION.SDK_INT>=17&&isDestroyed()))r.run();});}
-    @Override protected void onResume(){super.onResume();current=new java.lang.ref.WeakReference<>(this);UpdateManager.maybeCheck(this);updates.attach();web.onResume();String activeId=store.conversationId();if((!activeId.equals(shownConversation)||agent.provider()!=ModelProvider.current(this))&&!agent.isRunning())reloadConversation();else{agent.attachUi(callbacks());emit("state");}}
+    /** Chosen in the platform chooser: API tasks are parked for handoff (as when leaving), then the new platform opens. */
+    private void leaveTo(String provider){agent.exitPlatform();PlatformSession.switchTo(this,provider);
+        if(ModelProvider.isApiPlatform(provider))recreate();else{startActivity(new Intent(this,ChatActivity.class));finish();}}
+    @Override protected void onResume(){super.onResume();String switchTo=PlatformSession.takeSwitchRequest();if(switchTo!=null){leaveTo(switchTo);return;}current=new java.lang.ref.WeakReference<>(this);UpdateManager.maybeCheck(this);updates.attach();web.onResume();String activeId=store.conversationId();if((!activeId.equals(shownConversation)||agent.provider()!=ModelProvider.current(this))&&!agent.isRunning())reloadConversation();else{agent.attachUi(callbacks());emit("state");}}
     @Override protected void onPause(){updates.detach();web.onPause();super.onPause();}
     @Override protected void onDestroy(){agent.attachUi(null);web.removeJavascriptInterface("OPhoneChat");web.destroy();super.onDestroy();}
     @Override public void onUserLeaveHint(){super.onUserLeaveHint();if(Build.VERSION.SDK_INT>=26&&RiskPolicy.pipEnabled(this))try{enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(9,16)).build());}catch(Exception ignored){}}
