@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src=".github/assets/ophone-ai-icon.png" alt="OPhone AI 图标" width="112">
+
 # OPhone AI
 
 **开源 Android 智能体运行环境，让 AI 能在手机上理解状态、执行操作并验证结果。**
