@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src=".github/assets/ophone-ai-icon.png" alt="OPhone AI アイコン" width="112">
+
 # OPhone AI
 
 **AI が Android スマートフォンの状態を理解し、操作し、作業結果を検証できるようにするオープンソースのエージェントランタイムです。**
