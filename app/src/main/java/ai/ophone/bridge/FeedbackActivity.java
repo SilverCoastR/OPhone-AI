@@ -28,6 +28,7 @@ import java.util.Locale;
  * user's email app addressed to BuildConfig.FEEDBACK_EMAIL; nothing is sent without the user pressing send there.
  */
 public final class FeedbackActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private static final String[] KINDS={"bug","suggestion","other"};
     private int kind=0;private EditText description,contact;private Switch logs;private final TextView[] kindViews=new TextView[3];
 

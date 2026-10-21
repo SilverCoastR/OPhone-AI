@@ -4,6 +4,11 @@
 
 **An open-source Android agent runtime that lets AI understand, operate, and verify work on a phone.**
 
+[![Download Android APK](https://img.shields.io/badge/Download_Android_APK-latest_release-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/SilverCoastR/OPhone-AI/releases/latest/download/OPhone-AI.apk)
+
+**[⬇ Download Android APK (latest release)](https://github.com/SilverCoastR/OPhone-AI/releases/latest/download/OPhone-AI.apk)**  
+<sub>Always the newest release; the app can also update itself from About & updates.</sub>
+
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](docs/COMPATIBILITY.md)
 [![Java](https://img.shields.io/badge/Java-Android-ED8B00?logo=openjdk&logoColor=white)](app/src/main/java)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)

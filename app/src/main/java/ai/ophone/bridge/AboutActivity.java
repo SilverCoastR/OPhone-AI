@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -21,6 +20,7 @@ import java.util.Date;
 
 /** About OPhone AI: what it is, the GitHub project, and updates from GitHub Releases. */
 public final class AboutActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private TextView updateTitle,updateDetail,notes;private Button updateButton;private ProgressBar progress;
     private final Runnable listener=this::renderUpdate;
 
@@ -57,9 +57,11 @@ public final class AboutActivity extends Activity {
         page.addView(links,UiKit.cardParams(this));
         TextView license=UiKit.body(this,getString(R.string.about_license));license.setTextSize(12.5f);license.setGravity(Gravity.CENTER);license.setPadding(0,UiKit.dp(this,8),0,0);page.addView(license);
         setContentView(scroll);
-        if(getIntent().getBooleanExtra("check",false))UpdateManager.checkNow(this);
+        // Every time the page is opened it checks GitHub; elsewhere the check runs at most once a day.
+        UpdateManager.reconcileInstalled(this);UpdateManager.checkNow(this);
     }
-    private void link(LinearLayout card,int label,String url){Button b=UiKit.actionButton(this,getString(label));b.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception ignored){}});card.addView(b,new LinearLayout.LayoutParams(-1,-2));}
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);UpdateManager.checkNow(this);}
+    private void link(LinearLayout card,int label,String url){Button b=UiKit.actionButton(this,getString(label));b.setOnClickListener(v->WebPageActivity.open(this,url));card.addView(b,new LinearLayout.LayoutParams(-1,-2));}
 
     private void updateAction(){JSONObject s=UpdateManager.status(this);String st=s.optString("state");
         if("available".equals(st)||("failed".equals(st)&&s.optJSONObject("latest")!=null&&UpdateManager.newer(s.optJSONObject("latest").optString("tag"),BuildConfig.VERSION_NAME)))UpdateManager.download(this);
@@ -77,6 +79,7 @@ public final class AboutActivity extends Activity {
             progress.setVisibility(View.VISIBLE);progress.setIndeterminate(t<=0);if(t>0)progress.setProgress((int)(d*1000/t));updateButton.setText(R.string.update_downloading);updateButton.setEnabled(false);}
         else if("downloaded".equals(st)){updateTitle.setText(getString(R.string.update_ready_title,version));updateDetail.setText(R.string.update_ready_body);showNotes(latest);updateButton.setText(R.string.update_install);}
         else if("failed".equals(st)){updateTitle.setText(R.string.update_failed);updateDetail.setText(s.optString("error")+"\n"+lastText);updateButton.setText(latest!=null&&UpdateManager.newer(latest.optString("tag"),BuildConfig.VERSION_NAME)?getString(R.string.update_download):getString(R.string.update_check));}
+        else if("latest".equals(st)&&!s.optString("updated_to").isEmpty()){updateTitle.setText(getString(R.string.update_installed_title,s.optString("updated_to")));updateDetail.setText(getString(R.string.update_installed_body)+"\n"+lastText);updateButton.setText(R.string.update_check);}
         else if("latest".equals(st)){updateTitle.setText(R.string.update_latest);updateDetail.setText(lastText);updateButton.setText(R.string.update_check);}
         else{updateTitle.setText(getString(R.string.about_version,BuildConfig.VERSION_NAME));updateDetail.setText(lastText);updateButton.setText(R.string.update_check);}
     }
@@ -85,4 +88,5 @@ public final class AboutActivity extends Activity {
 
     @Override protected void onResume(){super.onResume();UpdateManager.addListener(listener);renderUpdate();}
     @Override protected void onPause(){UpdateManager.removeListener(listener);super.onPause();}
+    @Override protected void onStop(){UpdateManager.clearUpdatedNote(this);super.onStop();}
 }

@@ -12,6 +12,7 @@ import android.widget.TextView;
 
 /** Launcher and explicit platform boundary. */
 public final class PlatformActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     @Override protected void onCreate(Bundle state){super.onCreate(state);Intent service=new Intent(this,BridgeService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(service);else startService(service);
         if(!getIntent().getBooleanExtra(PlatformPreference.EXTRA_SHOW_CHOOSER,false)){String saved=PlatformPreference.get(this);if(PlatformPreference.valid(saved)){launchSaved(saved);return;}}
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);LinearLayout root=UiKit.page(this);scroll.addView(root,new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));

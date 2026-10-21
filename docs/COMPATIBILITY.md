@@ -9,6 +9,12 @@
 
 Manufacturer-specific background restrictions can still affect any Android application. OPhone AI links to the system settings supplied by the device instead of hard-coding one vendor's settings activity.
 
+The interface follows the phone's language: Chinese (`values-zh`, all Chinese variants), Japanese (`values-ja`), Korean (`values-ko`), otherwise English. The chat page, the overlay on the ChatGPT page and task notifications use the same choice (`UiKit.language()`), and page detection also recognizes ChatGPT's Japanese and Korean button labels.
+
+Night mode is a setting (Settings → Appearance): follow the system (default), always light or always dark. A forced mode overrides only the night bit of each activity's configuration (`UiKit.applyTheme` in `attachBaseContext`), so themes, `values-night` resources, the chat pages and WebView content follow it; open screens are rebuilt when the setting changes.
+
+Links the app opens (the GitHub project, releases, issues, links in chat replies and mini apps) open in OPhone AI's own page viewer (`WebPageActivity`), not another browser. Other schemes (`mailto:`, `tel:`) go to the app that handles them.
+
 Physical testing should cover multiple Android versions, WebView releases, screen sizes, languages, and manufacturers. Device identifiers and private test accounts do not belong in committed fixtures or documentation.
 
 ## Display cutouts and landscape

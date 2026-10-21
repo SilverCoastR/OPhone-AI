@@ -24,6 +24,7 @@ import java.util.List;
 
 /** Local-only configuration of one API platform; FLAG_SECURE keeps credentials out of screenshots. */
 public final class ModelApiSettingsActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     static final String EXTRA_PROVIDER="provider";
     private ModelProvider provider;private ModelApiStore store;private EditText key,maxTokens,baseUrl,modelText;private Spinner model,effort;private Switch thinking;private TextView status;
 

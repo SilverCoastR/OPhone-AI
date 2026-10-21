@@ -29,6 +29,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
 public class BridgeService extends Service {
+    static final String ACTION_RUN_SCHEDULES = "ai.ophone.bridge.RUN_SCHEDULES";
     private volatile boolean running;
     private ServerSocket serverSocket;
     private final ExecutorService clientPool = Executors.newFixedThreadPool(8);
@@ -121,6 +122,8 @@ public class BridgeService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForegroundMode();
+        if (intent != null && ACTION_RUN_SCHEDULES.equals(intent.getAction()))
+            new Thread(() -> ScheduleRunner.runDue(this), "OPhoneAI-schedule").start();
         if (!running) startServer();
         refreshOverlay();
         scheduleUpdateCheck();

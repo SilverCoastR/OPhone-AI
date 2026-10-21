@@ -13,6 +13,7 @@ local.properties
 *.aab
 
 # Optional local dependencies and development helpers
+tools/web-markdown/node_modules/
 gateway/
 plugin/
 tests/device/

@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Calls run in a native task of their own, so receipts, budgets and the audit log apply as usual.
  */
 public final class MiniAppActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     static final String EXTRA_NAME="name",ORIGIN="https://miniapp.ophone.local";
     private static final String CSP="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
     private static final Map<String,String> TYPES=new HashMap<>();
@@ -60,7 +61,7 @@ public final class MiniAppActivity extends Activity {
         root.addView(bar);
         web=new WebView(this);WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setSupportMultipleWindows(false);s.setJavaScriptCanOpenWindowsAutomatically(false);s.setTextZoom(100);
         web.setWebViewClient(new WebViewClient(){
-            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){String u=r.getUrl().toString();if(u.startsWith("http://")||u.startsWith("https://")&&!u.startsWith(ORIGIN))try{startActivity(new Intent(Intent.ACTION_VIEW,r.getUrl()));}catch(Exception ignored){}return !u.startsWith(ORIGIN);}
+            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){String u=r.getUrl().toString();if(u.startsWith("http://")||u.startsWith("https://")&&!u.startsWith(ORIGIN))try{WebPageActivity.open(MiniAppActivity.this,u);}catch(Exception ignored){}return !u.startsWith(ORIGIN);}
             @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest r){return serve(r.getUrl());}
         });
         web.addJavascriptInterface(new Bridge(),"OPhoneNative");root.addView(web,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));setContentView(root);

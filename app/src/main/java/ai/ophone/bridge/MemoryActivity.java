@@ -14,6 +14,7 @@ import org.json.JSONObject;
 
 /** Lets the user read and delete everything the agent has remembered. */
 public final class MemoryActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private LinearLayout list;
 
     @Override protected void onCreate(Bundle state) {

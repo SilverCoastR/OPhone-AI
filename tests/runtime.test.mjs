@@ -36,6 +36,7 @@ function harness(options = {}) {
     appendChild(child) { this.children.push(child); child.parent = this; return child; }
     remove() { if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); }
     contains(el) { return this === el || this.children.some(c => c.contains(el)); }
+    closest(selector) { return selector === 'form' ? options.form || null : null; }
     getBoundingClientRect() { return { left: 10, top: 650, width: 400, height: 50 }; }
     focus() {}
     addEventListener(name, fn) { this.events.set(name, fn); }
@@ -85,13 +86,14 @@ function harness(options = {}) {
       if (selector.startsWith('button[data-testid="send-button"]')) return options.sendReady?.(composer, now) === false ? null : sendButton;
       if (selector.startsWith('button[data-testid="stop-button"]')) return api.generating ? new Element('button') : null;
       if (selector === 'main') return { querySelectorAll: () => thinkingNodes.slice() };
-      return null;
+      return options.dom?.querySelector(selector) ?? null;
     },
+    get activeElement() { return options.dom?.activeElement; },
     querySelectorAll(selector) {
       if (selector.includes('data-chatgpt-search-unit-key$=')) return options.modern ? messages : [];
       if (selector === '[data-message-author-role]') return messages;
       if (selector === 'button') return [sendButton].concat(extraButtons);
-      return [];
+      return options.dom?.querySelectorAll(selector) ?? [];
     },
     addEventListener: (name, fn) => listeners.set(name, fn),
     removeEventListener: name => listeners.delete(name)
@@ -123,7 +125,7 @@ function harness(options = {}) {
     setInterval: (fn, ms) => schedule(fn, ms, ms), clearInterval: id => timers.delete(id),
     MutationObserver: class { observe() {} disconnect() {} },
     HTMLTextAreaElement: Textarea, HTMLInputElement: Textarea,
-    Event: FakeEvent, InputEvent: FakeEvent, MouseEvent: FakeEvent, PointerEvent: FakeEvent
+    Event: FakeEvent, InputEvent: FakeEvent, MouseEvent: FakeEvent, PointerEvent: FakeEvent, KeyboardEvent: FakeEvent
   });
   function message(role, text) {
     const id = `m${++messageSeq}`;
@@ -1224,4 +1226,89 @@ test('a stop control found by test id counts as generating; old indicators above
   await h.advance(500);
   assert.equal(vmRuntime(h).snapshot().running, true);
   assert.equal(vmRuntime(h).snapshot().live.page_signal, 'stop_testid');
+});
+
+// A ChatGPT-like model picker: a switcher button opening a menu with radio items, one submenu and a switch row,
+// plus an optional reasoning picker inside the composer form. Escape closes every open menu.
+function pickerDom({ effort = false } = {}) {
+  const dom = { model: 'GPT-5 Thinking', level: 'Standard', open: new Set(), clicks: [] };
+  const node = (attrs, text, extra = {}) => Object.assign({ attrs, tagName: 'DIV', get innerText() { return typeof text === 'function' ? text() : text; },
+    get textContent() { return this.innerText; }, getAttribute: n => attrs[n] ?? null, hasAttribute: n => n in attrs,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 10, height: 10 }), querySelector: () => null, querySelectorAll: () => [], focus() {},
+    dispatchEvent(e) { if (e.type === 'click') { dom.clicks.push(this.innerText.split('\n')[0]); this.onclick?.(); } return true; } }, extra);
+  const menu = (items) => node({ role: 'menu' }, '', { querySelectorAll: sel => sel.includes('menuitem') ? items : [] });
+  const pick = (key, value) => () => { dom[key] = value; dom.open.clear(); };
+  const legacy = node({ role: 'menuitemradio' }, 'GPT-4o\nLegacy model'); legacy.onclick = pick('model', 'GPT-4o');
+  const legacyMenu = menu([legacy]);
+  const items = [node({ role: 'menuitemradio' }, 'Instant\nAnswers right away'), node({ role: 'menuitemradio' }, 'Thinking\nThinks longer for better answers'),
+    node({ role: 'menuitem', 'aria-haspopup': 'menu' }, 'Legacy models'), node({ role: 'menuitem' }, 'Temporary chat', { querySelector: sel => sel.includes('switch') ? {} : null })];
+  items[0].onclick = pick('model', 'GPT-5 Instant'); items[1].onclick = pick('model', 'GPT-5 Thinking'); items[2].onclick = () => dom.open.add(legacyMenu);
+  const modelMenu = menu(items);
+  const levels = ['Light', 'Standard', 'Extended', 'Heavy'].map(l => { const n = node({ role: 'menuitemradio', 'aria-checked': () => '' }, l); n.onclick = pick('level', l); return n; });
+  for (const n of levels) n.getAttribute = name => name === 'aria-checked' ? String(dom.level === n.innerText) : null;
+  const effortMenu = menu(levels);
+  const button = node({ 'data-testid': 'model-switcher-dropdown-button', 'aria-haspopup': 'menu' }, () => dom.model); button.onclick = () => dom.open.add(modelMenu);
+  const effortButton = node({ 'aria-haspopup': 'menu' }, () => dom.level === 'Standard' ? 'Thinking' : dom.level); effortButton.onclick = () => dom.open.add(effortMenu);
+  const attach = node({ 'aria-haspopup': 'menu', 'aria-label': 'Add files and more' }, '');
+  dom.form = { querySelectorAll: () => effort ? [attach, effortButton] : [attach] };
+  dom.activeElement = { dispatchEvent(e) { if (e.key === 'Escape' && e.type === 'keydown') dom.open.clear(); return true; } };
+  dom.querySelector = sel => sel.includes('model-switcher') ? button : null;
+  dom.querySelectorAll = sel => sel.includes('[role="menu"]') ? [...dom.open] : [];
+  return dom;
+}
+
+test('the chat view reads ChatGPT\'s model picker and chooses through the page, including a submenu', async () => {
+  const dom = pickerDom();
+  const h = harness({ dom }); h.ready(); h.user('hi'); h.assistant('hello'); h.start(); await h.advance(1000);
+  assert.deepEqual({ ...vmRuntime(h).snapshot().model }, { label: 'GPT-5 Thinking', effort: '', can_choose: true, can_choose_effort: false });
+  vmRuntime(h).modelOptions('model', 'r1'); await h.advance(5000);
+  const menu = vmRuntime(h).snapshot().model_menu;
+  assert.equal(menu.id, 'r1'); assert.equal(menu.busy, false); assert.equal(menu.error, '');
+  assert.deepEqual(JSON.parse(JSON.stringify(menu.items.map(i => [i.label, i.group, i.selected]))), [['Instant', '', false], ['Thinking', '', true], ['GPT-4o', 'Legacy models', false]]);
+  assert.equal(menu.items[0].detail, 'Answers right away');
+  assert.equal(dom.open.size, 0); // the page menu is closed again
+  vmRuntime(h).chooseModel('model', 'GPT-4o', 'Legacy models'); await h.advance(5000);
+  assert.equal(dom.model, 'GPT-4o'); assert.equal(vmRuntime(h).snapshot().model.label, 'GPT-4o');
+  assert.equal(vmRuntime(h).snapshot().model_menu.error, '');
+  assert.ok(!dom.clicks.includes('Temporary chat'));
+});
+
+test('the reasoning level picker beside the composer is read and set; without one it reports not found', async () => {
+  const dom = pickerDom({ effort: true });
+  const h = harness({ dom, form: dom.form }); h.ready(); h.start(); await h.advance(1000);
+  assert.equal(vmRuntime(h).snapshot().model.effort, 'Thinking');
+  vmRuntime(h).modelOptions('effort', 'e1'); await h.advance(5000);
+  const menu = vmRuntime(h).snapshot().model_menu;
+  assert.deepEqual(Array.from(menu.items, i => i.label), ['Light', 'Standard', 'Extended', 'Heavy']);
+  assert.equal(menu.items.find(i => i.selected).label, 'Standard');
+  vmRuntime(h).chooseModel('effort', 'Extended'); await h.advance(5000);
+  assert.equal(vmRuntime(h).snapshot().model.effort, 'Extended');
+  const plain = harness({ dom: pickerDom(), form: pickerDom().form }); plain.ready(); plain.start(); await plain.advance(1000);
+  vmRuntime(plain).modelOptions('effort', 'e2'); await plain.advance(3000);
+  assert.equal(vmRuntime(plain).snapshot().model_menu.error, 'effort_picker_not_found');
+});
+
+test('finished ChatGPT answers use the original Markdown from the conversation API; citation markers are dropped', async () => {
+  const gets = [];
+  const reply = { mapping: {
+    a: { message: { id: 'm2', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['结果是 \(x^2\)\ue200cite\ue202turn0search1\ue201。'] } } },
+    b: { message: { id: 'm1', author: { role: 'user' }, content: { content_type: 'text', parts: ['算'] } } },
+    c: { message: { id: 'tool', author: { role: 'tool' }, content: { content_type: 'text', parts: ['hidden'] } } } } };
+  const fetch = (url, init = {}) => {
+    if (url === '/api/auth/session') return Promise.resolve({ json: () => Promise.resolve({ accessToken: 'token' }) });
+    if (url.startsWith('/backend-api/conversation/') && !init.method) { gets.push(url); return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(reply) }); }
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ items: [] }) });
+  };
+  const h = harness({ fetch, path: '/c/abcdef12-3456' }); h.user('算'); h.assistant('结果是 x2。'); h.start(); await h.advance(12000); // the page settles first
+  assert.deepEqual(gets, ['/backend-api/conversation/abcdef12-3456']);
+  const answer = vmRuntime(h).snapshot().items.find(i => i.type === 'answer');
+  assert.equal(answer.raw, true);
+  assert.equal(answer.text, '结果是 \(x^2\)。');
+  await h.advance(10000);
+  assert.equal(gets.length, 1); // nothing changed on the page: not read again
+  h.assistant('第二个回答'); await h.advance(12000);
+  assert.equal(gets.length, 2);
+  const items = vmRuntime(h).snapshot().items.filter(i => i.type === 'answer');
+  assert.equal(items[1].raw, undefined); // not in the API reply: the page's own text
+  assert.equal(items[1].text, '第二个回答');
 });

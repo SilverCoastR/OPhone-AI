@@ -21,7 +21,7 @@ final class StreamRecorder {
     static final long MAX_BYTES=1024L*1024L*1024L;
     final Context context;final Workspace workspace;final BrowserManager browser;final Events events;final File receipts;
     final ExecutorService worker=Executors.newCachedThreadPool();final Map<String,Job> jobs=new ConcurrentHashMap<>();
-    final class Job {String id,owner,name,kind,state="starting",error="",safeSource,mediaUri="",tabId="",requestedName="",pageUrl="";JSONObject scope;File file;long requested,started,finished,duration,bytes,startNotBefore,deadline,lastReload;boolean publish=true,watch;volatile boolean stop;}
+    final class Job {String id,owner,name,kind,state="starting",error="",safeSource,mediaUri="",tabId="",requestedName="",pageUrl="";JSONObject scope;File file;long requested,started,finished,duration,bytes,startNotBefore,deadline,lastReload;boolean publish=true,watch,browserShown;volatile boolean stop;}
     StreamRecorder(Context c,Workspace w,BrowserManager b,Events e){context=c.getApplicationContext();workspace=w;browser=b;events=e;receipts=new File(c.getFilesDir(),"workbench_stream_receipts");receipts.mkdirs();worker.execute(this::restoreWatchers);}
 
     JSONObject start(JSONObject a,JSONObject scope)throws Exception{
@@ -55,12 +55,18 @@ final class StreamRecorder {
         }catch(Exception ignored){}
     }
 
+    private boolean screenUsable(){
+        try{android.os.PowerManager pm=(android.os.PowerManager)context.getSystemService(android.content.Context.POWER_SERVICE);
+            android.app.KeyguardManager km=(android.app.KeyguardManager)context.getSystemService(android.content.Context.KEYGUARD_SERVICE);
+            return (pm==null||pm.isInteractive())&&(km==null||!km.isKeyguardLocked());}catch(Exception e){return false;}
+    }
     private void watch(Job j){
         try{
             while(!j.stop&&System.currentTimeMillis()<j.deadline){
                 long now=System.currentTimeMillis();if(now<j.startNotBefore){Thread.sleep(Math.min(5000,j.startNotBefore-now));continue;}
                 j.state="waiting_for_live";save(j);
-                try{context.startActivity(new android.content.Intent(context,BrowserActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception ignored){}
+                // The live page plays in the browser: brought to the front once per job, and only on an unlocked, lit screen.
+                if(!j.browserShown&&screenUsable()){j.browserShown=true;try{context.startActivity(new android.content.Intent(context,BrowserActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception ignored){}}
                 try{
                     JSONObject observed=browser.media(new JSONObject().put("tab_id",j.tabId));JSONArray found=observed.optJSONArray("media");JSONObject selected=null;
                     for(int i=0;found!=null&&i<found.length();i++){JSONObject item=found.getJSONObject(i);if(item.optLong("seen_at")>=j.startNotBefore-60000&&(selected==null||item.optLong("seen_at")>selected.optLong("seen_at")))selected=item;}

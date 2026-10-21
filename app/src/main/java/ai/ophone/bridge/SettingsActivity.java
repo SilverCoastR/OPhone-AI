@@ -17,6 +17,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 
 public class SettingsActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private static final int REQUEST_NOTIFICATIONS = 1401;
 
     private LinearLayout root;
@@ -41,6 +42,12 @@ public class SettingsActivity extends Activity {
 
         root.addView(UiKit.section(this, getString(R.string.section_platform)));
         addPlatformCard();
+
+        addActionCard(R.string.schedule_title,
+                () -> startActivity(new Intent(this, ScheduleActivity.class)));
+
+        root.addView(UiKit.section(this, getString(R.string.section_appearance)));
+        addThemeCard();
 
         root.addView(UiKit.section(this, getString(R.string.section_core)));
         addActionCard(R.string.model_api_button,
@@ -195,6 +202,32 @@ public class SettingsActivity extends Activity {
             updateStatus();
         });
 
+        root.addView(card, UiKit.cardParams(this));
+    }
+
+    /** Night mode: follow the system (default), always light or always dark; open screens are rebuilt in the new mode. */
+    private void addThemeCard() {
+        LinearLayout card = UiKit.card(this);
+        String[] modes = {UiKit.THEME_SYSTEM, UiKit.THEME_LIGHT, UiKit.THEME_DARK};
+        int[] labels = {R.string.theme_system, R.string.theme_light, R.string.theme_dark};
+        int current = java.util.Arrays.asList(modes).indexOf(UiKit.themeMode(this));
+        Button button = UiKit.actionButton(this, getString(R.string.theme_title) + "\n" + getString(labels[Math.max(0, current)]));
+        button.setOnClickListener(v -> {
+            String[] items = new String[labels.length];
+            for (int i = 0; i < labels.length; i++) items[i] = getString(labels[i]);
+            new android.app.AlertDialog.Builder(this).setTitle(R.string.theme_title)
+                    .setSingleChoiceItems(items, Math.max(0, java.util.Arrays.asList(modes).indexOf(UiKit.themeMode(this))), (dialog, which) -> {
+                        dialog.dismiss();
+                        if (modes[which].equals(UiKit.themeMode(this))) return;
+                        UiKit.setThemeMode(this, modes[which]);
+                        recreate();
+                    }).show();
+        });
+        card.addView(button, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView desc = UiKit.body(this, getString(R.string.theme_desc));
+        desc.setTextSize(13f);
+        desc.setPadding(UiKit.dp(this, 14), 0, UiKit.dp(this, 14), UiKit.dp(this, 6));
+        card.addView(desc);
         root.addView(card, UiKit.cardParams(this));
     }
 

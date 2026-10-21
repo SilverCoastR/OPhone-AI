@@ -30,6 +30,7 @@ import java.util.Map;
 
 /** Direct-model chat rendered by the bundled WebView UI in assets/chat. Tool-call JSON stays in the transport; the page shows structured steps. */
 public final class ApiChatActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     static final String ORIGIN="https://app.ophone.local";
     private static final Map<String,String> TYPES=new HashMap<>();
     static{TYPES.put("html","text/html");TYPES.put("js","application/javascript");TYPES.put("css","text/css");TYPES.put("woff2","font/woff2");TYPES.put("svg","image/svg+xml");TYPES.put("png","image/png");TYPES.put("jpg","image/jpeg");TYPES.put("jpeg","image/jpeg");TYPES.put("gif","image/gif");TYPES.put("webp","image/webp");TYPES.put("json","application/json");}
@@ -46,7 +47,12 @@ public final class ApiChatActivity extends Activity {
             @Override public void onPageFinished(WebView view,String url){pageReady=true;}
         });
         web.addJavascriptInterface(new Bridge(),"OPhoneChat");setContentView(web);
-        web.loadUrl(ORIGIN+"/chat/index.html?lang="+(Locale.getDefault().getLanguage().startsWith("zh")?"zh":"en")+"&dark="+(UiKit.isDark(this)?1:0));agent.attachUi(callbacks());
+        EdgeDrawer.attach(this,new EdgeDrawer.Host(){
+            @Override public WebView chat(){return web;}
+            @Override public boolean chatActive(){return pageReady&&!(Build.VERSION.SDK_INT>=26&&isInPictureInPictureMode());}
+            @Override public void back(){onBackPressed();}
+        });
+        web.loadUrl(ORIGIN+"/chat/index.html?lang="+UiKit.language()+"&dark="+(UiKit.isDark(this)?1:0));agent.attachUi(callbacks());
     }
     /** Only bundled chat assets and image files from the agent workspace are reachable; every other request is blocked. */
     static WebResourceResponse serve(android.content.Context c,Uri uri){
@@ -91,6 +97,7 @@ public final class ApiChatActivity extends Activity {
             if("settings".equals(target))startActivity(new Intent(ApiChatActivity.this,SettingsActivity.class));
             else if("model".equals(target))startActivity(ModelApiSettingsActivity.intent(ApiChatActivity.this,agent.provider()));
             else if("about".equals(target))startActivity(new Intent(ApiChatActivity.this,AboutActivity.class));
+            else if("schedules".equals(target))startActivity(new Intent(ApiChatActivity.this,ScheduleActivity.class));
             else if("feedback".equals(target))startActivity(new Intent(ApiChatActivity.this,FeedbackActivity.class));
             else if("platform".equals(target))exitPlatform();
             else if("browser".equals(target))try{WorkbenchClient.get(ApiChatActivity.this).showBrowser();}catch(Exception e){Toast.makeText(ApiChatActivity.this,e.getMessage(),Toast.LENGTH_LONG).show();}
@@ -129,7 +136,7 @@ public final class ApiChatActivity extends Activity {
                 .setPositiveButton(R.string.delete_chat,(d,w)->{try{store.deleteMessage(store.conversationId(),id);emit("reload");}catch(Exception e){Toast.makeText(this,DetailedDiagnostics.clean(e.getMessage()),Toast.LENGTH_SHORT).show();}}).show();}
     private void confirmDelete(String id){if(DirectModelAgent.isConversationRunning(id)||PlatformSession.hasActiveConversation(this,id)){Toast.makeText(this,R.string.delete_chat_running,Toast.LENGTH_LONG).show();return;}
         new AlertDialog.Builder(this).setTitle(R.string.delete_chat_title).setMessage(R.string.delete_chat_message).setNegativeButton(R.string.cancel,null).setPositiveButton(R.string.delete_chat,(dialog,which)->{boolean active=id.equals(store.conversationId());store.delete(id);if(active)reloadConversation();else emit("conversations");}).show();}
-    private void openExternal(String url){if(url==null||!(url.startsWith("https://")||url.startsWith("http://"))||url.startsWith(ORIGIN))return;try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_SHORT).show();}}
+    private void openExternal(String url){if(url==null||!(url.startsWith("https://")||url.startsWith("http://"))||url.startsWith(ORIGIN))return;WebPageActivity.open(this,url);}
     private void exitPlatform(){agent.exitPlatform();startActivity(new Intent(this,PlatformActivity.class).putExtra(PlatformPreference.EXTRA_SHOW_CHOOSER,true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));finish();}
     private void ui(Runnable r){runOnUiThread(()->{if(!isFinishing()&&!(Build.VERSION.SDK_INT>=17&&isDestroyed()))r.run();});}
     @Override protected void onResume(){super.onResume();current=new java.lang.ref.WeakReference<>(this);UpdateManager.maybeCheck(this);updates.attach();web.onResume();String activeId=store.conversationId();if((!activeId.equals(shownConversation)||agent.provider()!=ModelProvider.current(this))&&!agent.isRunning())reloadConversation();else{agent.attachUi(callbacks());emit("state");}}

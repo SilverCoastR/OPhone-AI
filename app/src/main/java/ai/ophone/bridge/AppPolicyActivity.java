@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 
 public class AppPolicyActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private final List<Switch> appRows = new ArrayList<>();
 
     @Override

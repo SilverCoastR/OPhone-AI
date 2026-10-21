@@ -4,6 +4,11 @@
 
 **开源 Android 智能体运行环境，让 AI 能在手机上理解状态、执行操作并验证结果。**
 
+[![安卓 APK 下载](https://img.shields.io/badge/%E5%AE%89%E5%8D%93_APK_%E4%B8%8B%E8%BD%BD-%E6%9C%80%E6%96%B0%E7%89%88-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/SilverCoastR/OPhone-AI/releases/latest/download/OPhone-AI.apk)
+
+**[⬇ 安卓 APK 下载（最新版）](https://github.com/SilverCoastR/OPhone-AI/releases/latest/download/OPhone-AI.apk)**  
+<sub>链接始终指向最新发布的版本；安装后也可以在“关于与更新”里一键升级。</sub>
+
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](docs/COMPATIBILITY.md)
 [![Java](https://img.shields.io/badge/Java-Android-ED8B00?logo=openjdk&logoColor=white)](app/src/main/java)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
