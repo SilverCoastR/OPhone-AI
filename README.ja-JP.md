@@ -4,6 +4,11 @@
 
 **AI が Android スマートフォンの状態を理解し、操作し、作業結果を検証できるようにするオープンソースのエージェントランタイムです。**
 
+[![Android APK ダウンロード](https://img.shields.io/badge/Android_APK_%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89-%E6%9C%80%E6%96%B0%E7%89%88-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/SilverCoastR/OPhone-AI/releases/latest/download/OPhone-AI.apk)
+
+**[⬇ Android APK ダウンロード（最新版）](https://github.com/SilverCoastR/OPhone-AI/releases/latest/download/OPhone-AI.apk)**  
+<sub>リンクは常に最新リリースを指します。インストール後は「情報とアップデート」からも更新できます。</sub>
+
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](docs/COMPATIBILITY.md)
 [![Java](https://img.shields.io/badge/Java-Android-ED8B00?logo=openjdk&logoColor=white)](app/src/main/java)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)

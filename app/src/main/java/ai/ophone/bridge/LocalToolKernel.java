@@ -43,12 +43,15 @@ public class LocalToolKernel {
             TaskProgress.toolStarted(context,scope,tool);
             JSONObject result = callInternal(tool, args, scope);
             TaskProgress.toolFinished(scope);
+            TaskProgress.noteAiAction(context,scope,tool);
             if(eventful(tool)){
                 boolean ok=!result.has("ok")||result.optBoolean("ok");String pkg=result.optString("package","");
                 JSONObject event=AgentEvents.get(context).publish(ok?"operation.completed":"operation.failed","kernel",scope,pkg,ok?"info":"error",new JSONObject().put("tool",tool).put("request_completed",ok).put("outcome_verified",result.optBoolean("foreground_matches_target",false)).put("error",result.optString("error","")));
                 result.put("operation_event",event);
             }
             TaskController.get(context).afterTool(scope,tool,result,null);
+            // Phone/app state changes and subscribed notifications ride on the result, for every model path.
+            if(scope!=null)AgentEvents.get(context).attach(result,scope.optString("task_id"));
             String target = auditPackage;
             if ("launch_app".equals(tool)) {
                 target = args.optString("package",
@@ -125,8 +128,15 @@ public class LocalToolKernel {
             requireAutomationEnabled();requirePackageAllowed(WorkbenchClient.PACKAGE);
             if("terminal_start".equals(tool)&&args.optBoolean("root",false)&&!RiskPolicy.rootShellEnabled(context))throw new SecurityException("root_shell_disabled_by_user");
             if("http_request".equals(tool)&&args.has("output_file")&&!RiskPolicy.downloadsEnabled(context))throw new SecurityException("downloads_disabled_by_user");
-            if("browser_open".equals(tool))WorkbenchClient.get(context).showBrowser();
-            JSONObject result=WorkbenchClient.get(context).call(tool,args,scope);if("stream_record_start".equals(tool)||"stream_record_watch_start".equals(tool))TaskController.get(context).recordingStarted(scope,result,args,"stream_recording");return result;
+            // The built-in browser comes to the front only while the user is in OPhone AI or the AI holds the screen;
+            // otherwise the page loads in the background (browser_screenshot then reports show_browser_before_screenshot).
+            boolean browserShown=true;
+            if("browser_open".equals(tool)){
+                if(TaskProgress.aiControlsScreen(context,scope==null?"":scope.optString("task_id")))WorkbenchClient.get(context).showBrowser();
+                else{browserShown=false;DetailedDiagnostics.event(context,"info","foreground",scope==null?"":scope.optString("task_id"),"","browser_kept_in_background",TaskProgress.foregroundBlock(context,scope==null?"":scope.optString("task_id")),null);}
+            }
+            JSONObject result=WorkbenchClient.get(context).call(tool,args,scope);
+            if(!browserShown)result.put("browser_shown",false).put("browser_note","The user is not in OPhone AI or an app you operate, so the browser was not brought to the front; the page loaded in the background.");if("stream_record_start".equals(tool)||"stream_record_watch_start".equals(tool))TaskController.get(context).recordingStarted(scope,result,args,"stream_recording");return result;
         }
         if ("task_status".equals(tool)) return TaskController.get(context).status(scope,args);
         if ("task_checkpoint".equals(tool)) return TaskController.get(context).checkpoint(scope,args);
@@ -140,7 +150,7 @@ public class LocalToolKernel {
         if("workspace_command".equals(tool)){if(args.optJSONArray("argv")!=null&&"run".equals(args.getJSONArray("argv").optString(0)))requireAutomationEnabled();return ProgramWorkspace.command(context,args,scope);}
         if ("task_set_criteria".equals(tool)) return TaskController.get(context).criteria(scope,args);
         if ("ask_user".equals(tool)) return TaskController.get(context).awaitUser(scope,args);
-        if ("return_to_chat".equals(tool)) return TaskProgress.bringChatToFront(context,scope==null?"":scope.optString("conversation"));
+        if ("return_to_chat".equals(tool)) return TaskProgress.bringChatToFront(context,scope==null?"":scope.optString("conversation"),scope==null?"":scope.optString("task_id"));
         if ("android_intent".equals(tool)) { requireAutomationEnabled(); return AndroidSystemTools.startIntent(context, args, scope); }
         if ("android_resolve".equals(tool)) return AndroidSystemTools.resolve(context, args);
         if ("android_info".equals(tool)) return AndroidSystemTools.info(context, args);
@@ -374,8 +384,8 @@ public class LocalToolKernel {
     public JSONArray mcpTools() throws Exception {
         JSONArray tools = new JSONArray();
         WorkbenchTools.append(tools);
-        JSONObject eventProps=new JSONObject();eventProps.put("types",new JSONObject().put("type","array").put("items",stringProp("app.foreground, diagnostic, operation.completed/failed, package.added/removed, program.completed/failed, browser.loaded/failed, terminal.completed/failed, terminal.report (status reports from scripts), ui.toast, http.completed/failed, recording.consent_required/started/completed/failed, stream.started/completed/failed")));
-        eventProps.put("package",stringProp("Optional exact allowed app package."));eventProps.put("source",stringProp("Optional accessibility, diagnostic, own_logcat, kernel, android_package, program, workbench or screen_record. System-wide logcat is unavailable."));
+        JSONObject eventProps=new JSONObject();eventProps.put("types",new JSONObject().put("type","array").put("items",stringProp("app.foreground, diagnostic, operation.completed/failed, package.added/removed, program.completed/failed, browser.loaded/failed, terminal.completed/failed, terminal.report (status reports from scripts), ui.toast, http.completed/failed, recording.consent_required/started/completed/failed, stream.started/completed/failed, phone.screen (off/on/unlocked), phone.power, phone.network, phone.audio, phone.config (rotation/dark mode), phone.memory, ophone.lifecycle (OPhone AI to background/foreground)")));
+        eventProps.put("package",stringProp("Optional exact allowed app package."));eventProps.put("source",stringProp("Optional accessibility, diagnostic, own_logcat, kernel, android_package, program, workbench, screen_record or phone. System-wide logcat is unavailable."));
         eventProps.put("min_level",stringProp("info, warn, error or fatal; default info."));eventProps.put("code",stringProp("Optional exact diagnostic code; own_logcat uses tag as code."));eventProps.put("min_count",integerProp("Trigger after 1-20 matching events."));
         eventProps.put("window_ms",integerProp("Counting window 1000-300000ms, default 30000."));eventProps.put("cooldown_ms",integerProp("Notification cooldown 1000-300000ms, default 10000."));eventProps.put("duration_ms",integerProp("Duration up to native task deadline / 30min."));eventProps.put("subscription_id",stringProp("Optional stable id to update this task's rule."));
         tools.put(tool("event_subscribe","Subscribe this native task to semantic events or conditional own-app diagnostics. Notifications are persistent and merged, require event_ack, and stop when the task ends. Prefer events to polling screenshots.",objectSchema(eventProps,"types")));

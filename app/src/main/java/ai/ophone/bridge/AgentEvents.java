@@ -82,9 +82,9 @@ public final class AgentEvents extends SQLiteOpenHelper {
     public synchronized JSONObject subscribe(JSONObject task,JSONObject args) throws Exception{
         if(TaskController.terminal(task.getString("status")))throw new IllegalStateException("active_task_required_for_subscription");
         JSONArray types=args.getJSONArray("types");if(types.length()<1||types.length()>8)throw new IllegalArgumentException("one_to_eight_event_types_required");
-        for(int i=0;i<types.length();i++)if(!java.util.Arrays.asList("app.foreground","diagnostic","operation.completed","operation.failed","package.added","package.removed","program.completed","program.failed","browser.loaded","browser.failed","terminal.completed","terminal.failed","terminal.report","ui.toast","http.completed","http.failed","recording.consent_required","recording.started","recording.completed","recording.failed","stream.started","stream.completed","stream.failed").contains(types.getString(i)))throw new IllegalArgumentException("unsupported_event_type");
+        for(int i=0;i<types.length();i++)if(!java.util.Arrays.asList("app.foreground","diagnostic","operation.completed","operation.failed","package.added","package.removed","program.completed","program.failed","browser.loaded","browser.failed","terminal.completed","terminal.failed","terminal.report","ui.toast","http.completed","http.failed","recording.consent_required","recording.started","recording.completed","recording.failed","stream.started","stream.completed","stream.failed","phone.screen","phone.power","phone.network","phone.audio","phone.config","phone.memory","ophone.lifecycle").contains(types.getString(i)))throw new IllegalArgumentException("unsupported_event_type");
         String pkg=args.optString("package","");if(!pkg.isEmpty()&&(!pkg.matches("[A-Za-z0-9_.]{1,200}")||!AppControlPolicy.isAllowed(context,pkg)))throw new SecurityException("event_package_not_allowed");
-        String source=args.optString("source","");if(!source.isEmpty()&&!java.util.Arrays.asList("accessibility","diagnostic","own_logcat","kernel","android_package","program","workbench","screen_record").contains(source))throw new IllegalArgumentException("unsupported_event_source");
+        String source=args.optString("source","");if(!source.isEmpty()&&!java.util.Arrays.asList("accessibility","diagnostic","own_logcat","kernel","android_package","program","workbench","screen_record","phone").contains(source))throw new IllegalArgumentException("unsupported_event_source");
         String min=args.optString("min_level","info");rank(min);
         int count=args.optInt("min_count",1),window=args.optInt("window_ms",30000),cooldown=args.optInt("cooldown_ms",10000);
         if(count<1||count>20||window<1000||window>300000||cooldown<1000||cooldown>300000)throw new IllegalArgumentException("invalid_event_threshold_window_or_cooldown");
@@ -151,5 +151,32 @@ public final class AgentEvents extends SQLiteOpenHelper {
     }
     /** Toast text is published only while some task listens for ui.toast, to keep the event log lean. */
     public void toast(String pkg,JSONObject toast){if(!AppControlPolicy.isAllowed(context,pkg))return;enqueue(()->{try{if(hasWindowSubscribers())publish("ui.toast","accessibility",null,pkg,"info",toast);}catch(Exception e){dropped.incrementAndGet();}});}
+    /** Phone and OPhone AI state changes (PhoneEvents); always recorded, they are few and a running task needs them. */
+    public void phone(String type,String level,JSONObject data){enqueue(()->{try{publish(type,"phone",null,"",level,data);}catch(Exception e){dropped.incrementAndGet();}});}
+
+    private static final Map<String,Long> phoneCursor=new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String,Long> noticeSeen=new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * Added to every tool result of a running task, on both the API and the ChatGPT web path: phone and app state
+     * changes since the previous step (informational, nothing to acknowledge) and new notifications from the task's
+     * own subscriptions (acknowledged with event_ack).
+     */
+    public void attach(JSONObject value,String task){if(value==null||task==null||task.isEmpty())return;try{
+        JSONArray phone=new JSONArray();long cursor;
+        synchronized(this){Long known=phoneCursor.get(task);
+            if(known==null){known=0L;try(Cursor c=getReadableDatabase().rawQuery("SELECT max(id) FROM events WHERE time_ms<?",new String[]{String.valueOf(System.currentTimeMillis()-60000)})){if(c.moveToFirst())known=c.getLong(0);}}
+            cursor=known;
+            try(Cursor c=getReadableDatabase().rawQuery("SELECT id,payload FROM events WHERE id>? AND source='phone' ORDER BY id LIMIT 12",new String[]{String.valueOf(known)})){
+                while(c.moveToNext()){cursor=c.getLong(0);JSONObject e=new JSONObject(c.getString(1));JSONObject d=e.optJSONObject("data");
+                    phone.put(new JSONObject().put("type",e.optString("type")).put("level",e.optString("level")).put("at",e.optLong("time_ms")).put("event",d==null?new JSONObject():d));}}
+            phoneCursor.put(task,cursor);if(phoneCursor.size()>64)phoneCursor.clear();}
+        if(phone.length()>0)value.put("phone_events",phone).put("phone_events_hint","Phone or OPhone AI state changed since your last step. Informational, no event_ack needed; take it into account (for example re-read the screen after a rotation, wait for the user to unlock, or retry after the network returns).");
+        JSONArray pending=pending(task),fresh=new JSONArray();
+        for(int i=0;i<pending.length()&&fresh.length()<3;i++){JSONObject n=pending.getJSONObject(i);long version=n.optLong("latest_event_id");String key=task+"\n"+n.optString("id");Long seen=noticeSeen.get(key);if(seen!=null&&seen>=version)continue;noticeSeen.put(key,version);
+            JSONObject e=n.optJSONObject("event")==null?new JSONObject():n.getJSONObject("event");String data=e.optJSONObject("data")==null?"":e.getJSONObject("data").toString();
+            fresh.put(new JSONObject().put("delivery_id",n.optString("id")).put("type",e.optString("type")).put("level",e.optString("level")).put("count",n.optInt("count")).put("latest_event_id",version).put("summary",data.length()>300?data.substring(0,300)+"...":data));}
+        if(noticeSeen.size()>256)noticeSeen.clear();
+        if(fresh.length()>0)value.put("pending_events",fresh).put("pending_events_hint","New task events arrived; handle them when relevant, read details with event_query and acknowledge with event_ack.");
+    }catch(Exception ignored){}}
     public void packageChanged(String pkg,boolean added){if(AppControlPolicy.isAllowed(context,pkg))enqueue(()->{try{publish(added?"package.added":"package.removed","android_package",null,pkg,"info",new JSONObject().put("package",pkg));}catch(Exception e){dropped.incrementAndGet();}});}
 }

@@ -22,19 +22,67 @@ public final class UiKit {
                 context.getResources().getDisplayMetrics()));
     }
 
+    /** The phone's language as one of the app's UI languages: zh, ja, ko, otherwise en. */
+    public static String language() {
+        String l = java.util.Locale.getDefault().getLanguage();
+        return "zh".equals(l) || "ja".equals(l) || "ko".equals(l) ? l : "en";
+    }
+
+    /* ---------- night mode: follow the system (default), or always light / always dark ---------- */
+
+    public static final String THEME_SYSTEM = "system", THEME_LIGHT = "light", THEME_DARK = "dark";
+    private static volatile String themeMode;
+
+    /** Read again from storage (activities can live in other processes, such as the built-in browser). */
+    @SuppressWarnings("deprecation")
+    public static String reloadThemeMode(Context context) {
+        String mode = context.getApplicationContext().getSharedPreferences("ui_theme", Context.MODE_MULTI_PROCESS).getString("mode", THEME_SYSTEM);
+        themeMode = THEME_LIGHT.equals(mode) || THEME_DARK.equals(mode) ? mode : THEME_SYSTEM;
+        return themeMode;
+    }
+
+    public static String themeMode(Context context) {
+        String mode = themeMode;
+        return mode != null ? mode : reloadThemeMode(context);
+    }
+
+    public static void setThemeMode(Context context, String mode) {
+        String value = THEME_LIGHT.equals(mode) || THEME_DARK.equals(mode) ? mode : THEME_SYSTEM;
+        context.getApplicationContext().getSharedPreferences("ui_theme", Context.MODE_PRIVATE).edit().putString("mode", value).commit();
+        themeMode = value;
+    }
+
+    /**
+     * Called from every activity's attachBaseContext: a forced light or dark mode overrides only the night bit of
+     * the configuration, so themes, values-night resources and WebView pages all follow it; everything else (font
+     * size, orientation, locale) still comes from the system.
+     */
+    public static void applyTheme(android.app.Activity activity) {
+        String mode = reloadThemeMode(activity);
+        if (THEME_SYSTEM.equals(mode)) return;
+        Configuration override = new Configuration();
+        override.fontScale = 0;
+        override.uiMode = (activity.getBaseContext().getResources().getConfiguration().uiMode & ~Configuration.UI_MODE_NIGHT_MASK)
+                | (THEME_DARK.equals(mode) ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_NO);
+        try { activity.applyOverrideConfiguration(override); } catch (Exception ignored) {}
+    }
+
     public static boolean isDark(Context context) {
+        String forced = themeMode(context);
+        if (THEME_DARK.equals(forced)) return true;
+        if (THEME_LIGHT.equals(forced)) return false;
         int mode = context.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK;
         return mode == Configuration.UI_MODE_NIGHT_YES;
     }
 
     public static int pageColor(Context context) {
-        return Color.parseColor(isDark(context) ? "#000000" : "#F2F2F7");
+        return Color.parseColor(isDark(context) ? "#161618" : "#F2F2F7");
     }
 
-    /** Plain content canvas (pure white / black), used behind full-screen web content. */
+    /** Plain content canvas (white / dark gray), used behind full-screen web content. */
     public static int canvasColor(Context context) {
-        return isDark(context) ? Color.BLACK : Color.WHITE;
+        return isDark(context) ? Color.parseColor("#161618") : Color.WHITE;
     }
 
     /** Matches status and navigation bars to a full-screen canvas. */
@@ -123,15 +171,15 @@ public final class UiKit {
     }
 
     public static int cardColor(Context context) {
-        return Color.parseColor(isDark(context) ? "#1C1C1E" : "#FFFFFF");
+        return Color.parseColor(isDark(context) ? "#232326" : "#FFFFFF");
     }
 
     public static int primaryTextColor(Context context) {
-        return Color.parseColor(isDark(context) ? "#FFFFFF" : "#000000");
+        return Color.parseColor(isDark(context) ? "#E3E3E6" : "#000000");
     }
 
     public static int secondaryTextColor(Context context) {
-        return Color.parseColor(isDark(context) ? "#99EBEBF5" : "#993C3C43");
+        return Color.parseColor(isDark(context) ? "#8CE3E3E8" : "#993C3C43");
     }
 
     public static int accentColor(Context context) {

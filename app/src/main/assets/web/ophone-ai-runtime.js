@@ -329,19 +329,18 @@
       });
       document.body.appendChild(control);
     }
-    const zh = (document.documentElement.lang || navigator.language || "").toLowerCase().startsWith("zh");
     const status = state.nativeTask && state.nativeTask.status;
     const attention = state.exhausted || state.phase === "failed" || deliveryFailed() || ["blocked", "failed"].includes(status);
     // While a tool runs the pill names it and counts steps, so the user always sees what the AI is doing.
     const running = state.toolRunning && state.inFlight
-      ? (zh ? "正在" : "Running ") + toolName(state.inFlight.tool, zh) + (state.callsThisTask ? (zh ? " · 第 " + state.callsThisTask + " 步" : " · step " + state.callsThisTask) : "")
+      ? (tr("正在", "Running ", "実行中 ", "실행 중 ")) + toolName(state.inFlight.tool) + (state.callsThisTask ? tr(" · 第 " + state.callsThisTask + " 步", " · step " + state.callsThisTask, " · ステップ " + state.callsThisTask, " · " + state.callsThisTask + "단계") : "")
       : "";
-    const summary = attention ? (zh ? "执行受阻" : "Needs attention")
+    const summary = attention ? (tr("执行受阻", "Needs attention", "対応が必要です", "확인이 필요합니다"))
       : running ? running
-      : status === "succeeded" ? (zh ? "任务已完成" : "Task completed")
-      : state.sending ? (zh ? "正在传送执行反馈" : "Sending feedback")
-      : state.taskOpen ? (zh ? "手机任务进行中" : "Phone task running") : (zh ? "手机工具" : "Phone tools");
-    const label = summary + " · " + (state.protocolDetailsExpanded ? (zh ? "收起详情" : "Hide details") : (zh ? "执行详情" : "Show details"));
+      : status === "succeeded" ? (tr("任务已完成", "Task completed", "タスク完了", "작업 완료"))
+      : state.sending ? (tr("正在传送执行反馈", "Sending feedback", "実行結果を送信中", "실행 결과 전송 중"))
+      : state.taskOpen ? (tr("手机任务进行中", "Phone task running", "スマホのタスク実行中", "휴대폰 작업 진행 중")) : (tr("手机工具", "Phone tools", "スマホツール", "휴대폰 도구"));
+    const label = summary + " · " + (state.protocolDetailsExpanded ? (tr("收起详情", "Hide details", "詳細を閉じる", "세부 정보 닫기")) : (tr("执行详情", "Show details", "実行の詳細", "실행 세부 정보")));
     if (control.textContent !== label) control.textContent = label;
     const expanded = String(state.protocolDetailsExpanded);
     if (control.getAttribute("aria-expanded") !== expanded) control.setAttribute("aria-expanded", expanded);
@@ -349,11 +348,26 @@
     if (control.style.top !== top + "px") control.style.top = top + "px";
   }
 
-  const TOOL_NAMES = { launch_app: "打开应用", get_ui: "读取界面", screenshot: "截图", tap: "点击", click_text: "点击文字",
-    input_text: "输入文字", swipe: "滑动", press_global: "系统按键", find_apps: "查找应用", wait_for_ui: "等待界面",
-    download_file: "下载文件", install_apk: "安装应用", open_url: "打开链接", python_run: "运行 Python", terminal_start: "运行命令",
-    browser_open: "打开网页", browser_action: "操作网页", http_request: "网络请求", task_verify: "验证结果", task_status: "查看任务" };
-  function toolName(tool, zh) { return zh && TOOL_NAMES[tool] ? TOOL_NAMES[tool] : tool; }
+  // Text on the ChatGPT page follows the phone's language: Chinese, Japanese, Korean, otherwise English.
+  function uiLang() {
+    const l = (navigator.language || document.documentElement.lang || "").toLowerCase();
+    return l.startsWith("zh") ? "zh" : l.startsWith("ja") ? "ja" : l.startsWith("ko") ? "ko" : "en";
+  }
+  function tr(zh, en, ja, ko) { return { zh, en, ja, ko }[uiLang()] || en; }
+  const TOOL_NAMES = {
+    zh: { launch_app: "打开应用", get_ui: "读取界面", screenshot: "截图", tap: "点击", click_text: "点击文字",
+      input_text: "输入文字", swipe: "滑动", press_global: "系统按键", find_apps: "查找应用", wait_for_ui: "等待界面",
+      download_file: "下载文件", install_apk: "安装应用", open_url: "打开链接", python_run: "运行 Python", terminal_start: "运行命令",
+      browser_open: "打开网页", browser_action: "操作网页", http_request: "网络请求", task_verify: "验证结果", task_status: "查看任务" },
+    ja: { launch_app: "アプリを開く", get_ui: "画面を読み取る", screenshot: "スクリーンショット", tap: "タップ", click_text: "文字をタップ",
+      input_text: "文字を入力", swipe: "スワイプ", press_global: "システムキー", find_apps: "アプリを探す", wait_for_ui: "画面を待つ",
+      download_file: "ダウンロード", install_apk: "アプリをインストール", open_url: "リンクを開く", python_run: "Python 実行", terminal_start: "コマンド実行",
+      browser_open: "ページを開く", browser_action: "ページを操作", http_request: "HTTP リクエスト", task_verify: "結果を検証", task_status: "タスク状況" },
+    ko: { launch_app: "앱 열기", get_ui: "화면 읽기", screenshot: "스크린샷", tap: "탭", click_text: "텍스트 탭",
+      input_text: "텍스트 입력", swipe: "스와이프", press_global: "시스템 키", find_apps: "앱 찾기", wait_for_ui: "화면 대기",
+      download_file: "다운로드", install_apk: "앱 설치", open_url: "링크 열기", python_run: "Python 실행", terminal_start: "명령 실행",
+      browser_open: "페이지 열기", browser_action: "페이지 조작", http_request: "HTTP 요청", task_verify: "결과 검증", task_status: "작업 상태" } };
+  function toolName(tool) { const names = TOOL_NAMES[uiLang()]; return names && names[tool] ? names[tool] : tool; }
 
   // Internal deliveries hide the whole composer (text, attachment previews, buttons), freeze its height so the
   // conversation does not jump, and show one quiet status line in its place.
@@ -386,8 +400,7 @@
       note.style.cssText = "position:fixed;z-index:2147483644;display:flex;align-items:center;justify-content:center;gap:8px;"
         + "box-sizing:border-box;border-radius:24px;background:Canvas;color:CanvasText;opacity:.92;"
         + "font:14px/1.4 system-ui,-apple-system,sans-serif;pointer-events:none;";
-      const zh = (document.documentElement.lang || navigator.language || "").toLowerCase().startsWith("zh");
-      note.textContent = zh ? "正在把执行结果交给 ChatGPT…" : "Handing the result to ChatGPT…";
+      note.textContent = tr("正在把执行结果交给 ChatGPT…", "Handing the result to ChatGPT…", "実行結果を ChatGPT に渡しています…", "실행 결과를 ChatGPT에 전달하는 중…");
       document.body.appendChild(note);
     }
     const r = area.getBoundingClientRect();
@@ -460,17 +473,17 @@
 
   // Setup progress for the gate: load tools, send the setup, then wait for ChatGPT's confirmation (eased, since
   // the reply time varies). A failure keeps the bar where it stopped and turns it red.
-  function setupProgress(zh) {
+  function setupProgress() {
     const failed = state.phase === "failed" || deliveryFailed();
     let value, step;
     if (deliveryFailed()) { value = 1; step = ""; }
-    else if (state.routeWaitingAt || state.historyWaitingAt) { value = 0.15; step = zh ? "正在读取对话" : "Reading the conversation"; }
-    else if (state.setupSending && state.sending) { value = 0.3; step = zh ? "第 2/3 步：发送连接说明" : "Step 2 of 3: sending setup"; }
+    else if (state.routeWaitingAt || state.historyWaitingAt) { value = 0.15; step = tr("正在读取对话", "Reading the conversation", "会話を読み込み中", "대화를 읽는 중"); }
+    else if (state.setupSending && state.sending) { value = 0.3; step = tr("第 2/3 步：发送连接说明", "Step 2 of 3: sending setup", "ステップ 2/3：接続の説明を送信", "2/3단계: 연결 안내 보내기"); }
     else if (state.awaitingReady) {
       const waited = Date.now() - (state.awaitingReadyAt || Date.now());
       value = 0.4 + 0.55 * (1 - Math.exp(-waited / 12000));
-      step = (zh ? "第 3/3 步：等待 ChatGPT 确认 · " : "Step 3 of 3: waiting for ChatGPT · ") + Math.round(waited / 1000) + "s";
-    } else { value = 0.12; step = zh ? "第 1/3 步：加载手机工具" : "Step 1 of 3: loading phone tools"; }
+      step = (tr("第 3/3 步：等待 ChatGPT 确认 · ", "Step 3 of 3: waiting for ChatGPT · ", "ステップ 3/3：ChatGPT の確認待ち · ", "3/3단계: ChatGPT 확인 대기 · ")) + Math.round(waited / 1000) + "s";
+    } else { value = 0.12; step = tr("第 1/3 步：加载手机工具", "Step 1 of 3: loading phone tools", "ステップ 1/3：スマホツールを読み込み中", "1/3단계: 휴대폰 도구 불러오는 중"); }
     if (failed) value = Math.max(state.gateProgress || 0, 0.1);
     else state.gateProgress = value;
     return { value, step, failed };
@@ -485,30 +498,23 @@
       return;
     }
 
-    const lang = (
-      document.documentElement.lang
-      || navigator.language
-      || ""
-    ).toLowerCase();
-    const zh = lang.startsWith("zh");
-
     if (existing) {
       const failed = state.phase === "failed" || deliveryFailed();
       const title = existing.querySelector('[data-ophone-ai="title"]');
       const detail = existing.querySelector('[data-ophone-ai="detail"]');
       const retry = existing.querySelector("button");
-      const titleText = deliveryFailed() ? (zh ? "工具结果尚未发回" : "Tool result was not sent")
-        : failed ? (zh ? "手机工具尚未就绪" : "Phone tools are not ready")
-        : (zh ? "正在准备手机工具" : "Preparing phone tools");
+      const titleText = deliveryFailed() ? (tr("工具结果尚未发回", "Tool result was not sent", "ツールの結果がまだ送信されていません", "도구 결과가 아직 전송되지 않았습니다"))
+        : failed ? (tr("手机工具尚未就绪", "Phone tools are not ready", "スマホツールの準備ができていません", "휴대폰 도구가 준비되지 않았습니다"))
+        : (tr("正在准备手机工具", "Preparing phone tools", "スマホツールを準備中", "휴대폰 도구 준비 중"));
       const detailText = deliveryFailed()
-        ? (zh ? "重试只会重新发送结果，不会重复手机操作。" : "Retry sends the saved result without repeating the phone action.")
+        ? (tr("重试只会重新发送结果，不会重复手机操作。", "Retry sends the saved result without repeating the phone action.", "再試行は結果を再送するだけで、スマホ操作は繰り返しません。", "다시 시도하면 결과만 다시 보내며 휴대폰 작업은 반복하지 않습니다."))
         : failed
-        ? (zh ? "初始化未完成。请检查连接后重试，也可以切换会话。" : "Setup did not finish. Check your connection and retry, or switch conversations.")
+        ? (tr("初始化未完成。请检查连接后重试，也可以切换会话。", "Setup did not finish. Check your connection and retry, or switch conversations.", "初期化が完了していません。接続を確認して再試行するか、会話を切り替えてください。", "초기화가 끝나지 않았습니다. 연결을 확인한 뒤 다시 시도하거나 대화를 전환하세요."))
           + (state.lastError ? " (" + state.lastError + ")" : "")
-        : (zh ? "准备完成后即可下达手机任务。" : "You can send phone tasks when setup is complete.");
+        : (tr("准备完成后即可下达手机任务。", "You can send phone tasks when setup is complete.", "準備が完了するとスマホのタスクを指示できます。", "준비가 끝나면 휴대폰 작업을 맡길 수 있습니다."));
       if (title.textContent !== titleText) title.textContent = titleText;
       if (detail.textContent !== detailText) detail.textContent = detailText;
-      const progress = setupProgress(zh), bar = existing.querySelector('[data-ophone-ai="bar"]'), step = existing.querySelector('[data-ophone-ai="step"]');
+      const progress = setupProgress(), bar = existing.querySelector('[data-ophone-ai="bar"]'), step = existing.querySelector('[data-ophone-ai="step"]');
       if (bar) {
         bar.style.width = Math.round(progress.value * 100) + "%";
         bar.style.background = progress.failed ? "#ff3b30" : "#0a84ff";
@@ -546,14 +552,12 @@
     const title = document.createElement("div");
     title.setAttribute("data-ophone-ai", "title");
     title.style.cssText = "font-weight:700;font-size:16px;margin-bottom:6px;";
-    title.textContent = zh ? "正在准备手机工具" : "Preparing phone tools";
+    title.textContent = tr("正在准备手机工具", "Preparing phone tools", "スマホツールを準備中", "휴대폰 도구 준비 중");
 
     const detail = document.createElement("div");
     detail.setAttribute("data-ophone-ai", "detail");
     detail.style.cssText = "opacity:.72;";
-    detail.textContent = zh
-      ? "首次进入会话通常需要几秒，准备完成后即可直接下达手机任务。"
-      : "This usually takes a few seconds. You can send phone tasks when setup is complete.";
+    detail.textContent = tr("首次进入会话通常需要几秒，准备完成后即可直接下达手机任务。", "This usually takes a few seconds. You can send phone tasks when setup is complete.", "通常は数秒で終わります。準備が完了するとスマホのタスクを指示できます。", "보통 몇 초면 끝납니다. 준비가 끝나면 휴대폰 작업을 맡길 수 있습니다.");
 
     card.appendChild(title);
     card.appendChild(detail);
@@ -569,7 +573,7 @@
     stepLine.style.cssText = "font-size:12px;opacity:.6;";
     card.appendChild(stepLine);
     const retry = document.createElement("button");
-    retry.textContent = zh ? "重试" : "Retry";
+    retry.textContent = tr("重试", "Retry", "再試行", "다시 시도");
     retry.style.cssText = "margin-top:10px;padding:8px 16px;cursor:pointer;";
     retry.addEventListener("click", retryProtocol);
     card.appendChild(retry);
@@ -699,9 +703,9 @@
     return Array.from(document.querySelectorAll("button")).find(button => {
       const aria = (button.getAttribute("aria-label") || "").toLowerCase();
       const title = (button.getAttribute("title") || "").toLowerCase();
-      return aria === "发送"
+      return /^(发送|發送|送信|보내기|전송)/.test(aria)
         || aria.includes("send")
-        || title === "发送"
+        || /^(发送|發送|送信|보내기|전송)/.test(title)
         || title.includes("send");
     }) || null;
   }
@@ -752,7 +756,7 @@
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messageRole(messages[i]) !== "assistant") break;
       // The provider can append a separate thinking placeholder after its error banner.
-      if (/^(?:正在思考|思考中|Thinking)[.。…\s]*$/i.test(messageText(messages[i]))) continue;
+      if (/^(?:正在思考|思考中|考え中|생각 중|생각하는 중|Thinking)[.。…\s]*$/i.test(messageText(messages[i]))) continue;
       last = messages[i]; break;
     }
     if (!last) return "";
@@ -774,8 +778,8 @@
       if (testid.includes("stop")) return "stop_testid";
       const s = ((button.getAttribute("aria-label") || "") + " " + (button.getAttribute("title") || "")
         + " " + (button.innerText || "")).toLowerCase();
-      if (/stop generating|stop response|stop streaming|停止生成|停止回复|停止回答|停止流式/.test(s)) return "stop_label";
-      if (form && form.contains && form.contains(button) && /(^|\s)(stop|停止)/.test(s.trim())) return "composer_stop";
+      if (/stop generating|stop response|stop streaming|停止生成|停止回复|停止回答|停止流式|生成を停止|回答を停止|ストリーミングを停止|생성 중지|응답 중지|스트리밍 중지/.test(s)) return "stop_label";
+      if (form && form.contains && form.contains(button) && /(^|\s)(stop|停止|중지)/.test(s.trim())) return "composer_stop";
     }
     return "";
   }
@@ -1743,7 +1747,7 @@
   // The user's stop button: end generation and the open task without delivering more results.
   function userStop() {
     const stop = document.querySelector('button[data-testid="stop-button"]')
-      || Array.from(document.querySelectorAll("button")).find(button => /stop|停止/i.test(button.getAttribute("aria-label") || ""));
+      || Array.from(document.querySelectorAll("button")).find(button => /stop|停止|중지/i.test(button.getAttribute("aria-label") || ""));
     if (stop) realClick(stop);
     const task = state.nativeTask && state.nativeTask.id || "";
     state.userQueue = []; state.guidance = [];
@@ -1768,6 +1772,32 @@
     const annotation = node.querySelector && node.querySelector('annotation[encoding="application/x-tex"]');
     return annotation ? (annotation.textContent || "").trim() : "";
   }
+  // Formulas are rendered again by OPhone AI's own KaTeX (same build, injected beside this runtime). When that
+  // KaTeX cannot render one the page shows (an extension such as \ce, a site macro, or no TeX source at all),
+  // the page's own rendered formula travels with the answer and the chat view shows that instead.
+  let mathCollector = null;
+  const mathChecks = new Map();
+  function localKatexRenders(tex, display) {
+    const k = window.__OPhoneAIKatex;
+    if (!k || !k.renderToString) return true;
+    const key = (display ? "D" : "I") + tex;
+    if (mathChecks.has(key)) return mathChecks.get(key);
+    let ok = true;
+    try { k.renderToString(tex, { displayMode: display, throwOnError: true, strict: "ignore", trust: false, output: "html" }); } catch (_) { ok = false; }
+    if (mathChecks.size > 2000) mathChecks.clear();
+    mathChecks.set(key, ok);
+    return ok;
+  }
+  function mathSource(node, display) {
+    let tex = texOf(node);
+    const page = node.querySelector && node.querySelector(".katex-html");
+    if (mathCollector && page && (!tex || !localKatexRenders(tex, display))) {
+      if (!tex) tex = "\\text{@page" + (Object.keys(mathCollector).length + 1) + "}";
+      const key = tex.replace(/\s+/g, " ").trim(); // the chat view looks it up the same way
+      if (!mathCollector[key]) mathCollector[key] = String(page.outerHTML || "").slice(0, 60000);
+    }
+    return tex;
+  }
   function codeFence(code) {
     let fence = "```";
     while (code.includes(fence)) fence += "`";
@@ -1778,7 +1808,8 @@
     if (node.nodeType === 3) return mdEscape((node.textContent || "").replace(/\s+/g, " "));
     if (node.nodeType !== 1 || MD_SKIP.has(node.tagName)) return "";
     const tag = node.tagName, cls = typeof node.className === "string" ? node.className : "";
-    if (/\bkatex\b/.test(cls)) { const tex = texOf(node); return tex ? "$" + tex + "$" : ""; }
+    if (/\bkatex-display\b/.test(cls)) { const tex = mathSource(node, true); return tex ? "\\[" + tex + "\\]" : ""; }
+    if (/(^|\s)katex(\s|$)/.test(cls)) { const tex = mathSource(node, false); return tex ? "\\(" + tex + "\\)" : ""; }
     if (tag === "BR") return "\\\n";
     if (tag === "IMG") return "";
     if (tag === "CODE") {
@@ -1832,7 +1863,7 @@
   }
   function mdBlock(node, depth) {
     const tag = node.tagName, cls = typeof node.className === "string" ? node.className : "";
-    if (/\bkatex-display\b/.test(cls)) { const tex = texOf(node); return tex ? "$$\n" + tex + "\n$$\n\n" : ""; }
+    if (/\bkatex-display\b/.test(cls)) { const tex = mathSource(node, true); return tex ? "$$\n" + tex + "\n$$\n\n" : ""; }
     if (/^H[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + mdChildrenInline(node).trim() + "\n\n";
     if (tag === "HR") return "---\n\n";
     if (tag === "PRE") {
@@ -1858,15 +1889,20 @@
     flush();
     return out;
   }
-  function toMarkdown(node) {
-    if (!node) return "";
-    if (!node.childNodes) return (node.innerText || node.textContent || "").trim();
+  function toMarkdown(node) { return answerMarkdown(node).text; }
+  // { text, math }: math maps a formula's TeX to the page's rendered HTML, only for formulas our KaTeX cannot do.
+  function answerMarkdown(node) {
+    if (!node) return { text: "", math: null };
+    if (!node.childNodes) return { text: (node.innerText || node.textContent || "").trim(), math: null };
     const raw = node.innerHTML || "";
     const cached = markdownCache.get(node);
-    if (cached && cached.raw === raw) return cached.text;
-    const text = mdBlocks(node, 0).replace(/\n{3,}/g, "\n\n").trim();
-    markdownCache.set(node, { raw, text });
-    return text;
+    if (cached && cached.raw === raw) return cached;
+    mathCollector = {};
+    let text;
+    try { text = mdBlocks(node, 0).replace(/\n{3,}/g, "\n\n").trim(); } finally { var math = mathCollector; mathCollector = null; }
+    const entry = { raw, text, math: Object.keys(math).length ? math : null };
+    markdownCache.set(node, entry);
+    return entry;
   }
   function answerRoot(node) {
     return node.querySelector('[data-markdown-text-style="assistant-message"]')
@@ -1896,9 +1932,10 @@
   // Render items for OPhone AI's chat page: human turns, tool steps, questions and answers.
   function transcript() {
     const items = [], steps = new Map();
+    const lastAnswerNode = allMessages().filter(node => messageRole(node) === "assistant").pop() || null;
     for (const node of allMessages()) {
       const role = messageRole(node), text = messageText(node);
-      if (!text || (role === "assistant" && /^(?:正在思考|思考中|Thinking)[.。…\s]*$/i.test(text))) continue;
+      if (!text || (role === "assistant" && /^(?:正在思考|思考中|考え中|생각 중|생각하는 중|Thinking)[.。…\s]*$/i.test(text))) continue;
       if (role === "user") {
         if (text.startsWith(SETUP_MARKER)) continue;
         if (text.startsWith(RESULT_MARKER)) {
@@ -1933,8 +1970,11 @@
         }
         continue;
       }
-      const markdown = toMarkdown(answerRoot(node));
-      if (markdown) items.push({ type: "answer", text: markdown });
+      // The original Markdown once the answer is complete; the page's own text while it is still being written.
+      const raw = rawMessages.get(nodeMessageId(node));
+      if (raw && !(generationActive() && node === lastAnswerNode)) { items.push({ type: "answer", text: raw, raw: true }); continue; }
+      const answer = answerMarkdown(answerRoot(node));
+      if (answer.text) items.push(answer.math ? { type: "answer", text: answer.text, math: answer.math } : { type: "answer", text: answer.text });
     }
     for (const queued of state.userQueue) items.push({ type: "user", text: queued.text, queued: true });
     for (const text of state.guidance) items.push({ type: "user", text, guidance: true, queued: true });
@@ -1975,17 +2015,183 @@
     return info;
   }
 
+  /* ---------- model and reasoning level: read from, and changed through, the page's own pickers ---------- */
+
+  function oneLine(el) { return el ? String(el.innerText || el.textContent || "").replace(/\s+/g, " ").trim() : ""; }
+  function shown(el) { try { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; } catch (_) { return true; } }
+  // The model switcher at the top of the page ("ChatGPT 5 Thinking ▾").
+  function modelButton() {
+    return document.querySelector('[data-testid="model-switcher-dropdown-button"]')
+      || Array.from(document.querySelectorAll('button[aria-haspopup="menu"]')).find(b => {
+        const label = (b.getAttribute("aria-label") || "") + " " + oneLine(b);
+        return /model|模型|モデル|모델/i.test(b.getAttribute("aria-label") || "") || /^(chatgpt|gpt|o\d)\b/i.test(oneLine(b)) || /\bgpt-?\d/i.test(label);
+      }) || null;
+  }
+  const EFFORT_WORDS = /think|reason|effort|instant|light|standard|extended|heavy|\bpro\b|auto|思考|推理|标准|標準|扩展|擴展|进阶|轻|深度|即时|自动|自動|考え|推論|拡張|생각|추론|표준|확장|가벼|즉시|자동/i;
+  const NOT_EFFORT = /attach|add|upload|file|photo|image|tool|plus|voice|dictat|附件|添加|上传|文件|图片|工具|语音|追加|ファイル|画像|ツール|音声|첨부|추가|파일|이미지|도구|음성/i;
+  // The reasoning level picker beside the composer ("Thinking ▾", "Extended", "Pro"), present only for some models.
+  function effortButton() {
+    const composer = findComposer(), form = composer && composer.closest ? composer.closest("form") : null;
+    if (!form || !form.querySelectorAll) return null;
+    return Array.from(form.querySelectorAll('button[aria-haspopup="menu"],button[aria-haspopup="listbox"]')).find(b => {
+      const label = (oneLine(b) + " " + (b.getAttribute("aria-label") || "")).trim();
+      return label && EFFORT_WORDS.test(label) && !NOT_EFFORT.test(b.getAttribute("aria-label") || "") && !NOT_EFFORT.test(oneLine(b));
+    }) || null;
+  }
+  function modelState() {
+    const model = modelButton(), effort = effortButton();
+    return { label: oneLine(model).slice(0, 80), effort: oneLine(effort).slice(0, 60), can_choose: !!model, can_choose_effort: !!effort };
+  }
+
+  const MENU = '[role="menu"],[role="listbox"]';
+  const ITEMS = '[role="menuitem"],[role="menuitemradio"],[role="option"]';
+  function openMenus() { return Array.from(document.querySelectorAll(MENU)).filter(shown); }
+  function pressEscape() {
+    const target = document.activeElement || document.body;
+    for (const type of ["keydown", "keyup"])
+      try { target.dispatchEvent(new KeyboardEvent(type, { key: "Escape", code: "Escape", keyCode: 27, bubbles: true, cancelable: true })); } catch (_) {}
+  }
+  async function closeMenus() { for (let i = 0; i < 3 && openMenus().length; i++) { pressEscape(); await sleep(150); } }
+  async function waitForMenu(before, timeout) {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      const menus = openMenus().filter(m => !before.includes(m));
+      if (menus.length) return menus[menus.length - 1];
+      await sleep(80);
+    }
+    return null;
+  }
+  async function openMenu(button) {
+    const before = openMenus();
+    realClick(button);
+    let menu = await waitForMenu(before, 1500);
+    if (!menu) {
+      try { button.focus(); button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true })); } catch (_) {}
+      menu = await waitForMenu(before, 1200);
+    }
+    return menu;
+  }
+  // A choice in a page menu: switches (temporary chat) and links are not model choices.
+  function menuChoices(menu, current) {
+    const items = Array.from(menu.querySelectorAll(ITEMS)).filter(n => shown(n)
+      && !(n.querySelector && n.querySelector('[role="switch"],input[type="checkbox"]')) && !(n.tagName === "A"));
+    const out = items.map(n => {
+      const lines = String(n.innerText || n.textContent || "").split("\n").map(s => s.trim()).filter(Boolean);
+      return { node: n, label: (lines[0] || "").slice(0, 80), detail: lines.slice(1).join(" · ").slice(0, 140),
+        selected: n.getAttribute("aria-checked") === "true" || n.getAttribute("aria-selected") === "true" || n.getAttribute("data-state") === "checked",
+        submenu: n.getAttribute("aria-haspopup") === "menu" || n.hasAttribute && n.hasAttribute("data-has-submenu") };
+    }).filter(c => c.label);
+    // Pages that mark the current choice only with a check icon: match it against the picker's own label.
+    if (!out.some(c => c.selected) && current) {
+      const lower = current.toLowerCase();
+      const hit = out.filter(c => !c.submenu && lower.includes(c.label.toLowerCase())).sort((a, b) => b.label.length - a.label.length)[0];
+      if (hit) hit.selected = true;
+    }
+    return out;
+  }
+  async function openSubmenu(choice) {
+    const before = openMenus();
+    realClick(choice.node);
+    let menu = await waitForMenu(before, 900);
+    if (!menu) {
+      try { choice.node.focus(); choice.node.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", code: "ArrowRight", keyCode: 39, bubbles: true, cancelable: true })); } catch (_) {}
+      menu = await waitForMenu(before, 900);
+    }
+    return menu;
+  }
+  // Exact label first, then ignoring case, then the closest containing match ("Thinking" for "GPT-5 Thinking").
+  function findChoice(choices, label) {
+    const plain = choices.filter(c => !c.submenu), want = String(label || "").trim().toLowerCase();
+    if (!want) return null;
+    return plain.find(c => c.label === label) || plain.find(c => c.label.toLowerCase() === want)
+      || plain.filter(c => want.includes(c.label.toLowerCase()) || c.label.toLowerCase().includes(want))
+        .sort((a, b) => b.label.length - a.label.length)[0] || null;
+  }
+  function pickerFor(kind) { return kind === "effort" ? effortButton() : modelButton(); }
+  function plainChoice(c, group) { return { label: c.label, detail: c.detail, selected: c.selected, group: group || "" }; }
+
+  // Lists what the page's picker offers (one submenu level, such as "More models"); the answer reaches the chat
+  // view with the next snapshot as model_menu.
+  async function modelOptions(kind, id) {
+    kind = kind === "effort" ? "effort" : "model";
+    const request = state.modelMenu = { id: String(id || Date.now()), kind, busy: true, at: Date.now(), items: [], error: "" };
+    if (state.modelBusy || state.sending) { request.busy = false; request.error = "busy"; return request; }
+    state.modelBusy = true;
+    try {
+      const button = pickerFor(kind);
+      if (!button) throw new Error(kind === "effort" ? "effort_picker_not_found" : "model_picker_not_found");
+      const current = oneLine(button), menu = await openMenu(button);
+      if (!menu) throw new Error("picker_menu_did_not_open");
+      const items = [];
+      for (const c of menuChoices(menu, current)) {
+        if (!c.submenu) { items.push(plainChoice(c)); continue; }
+        const sub = await openSubmenu(c);
+        if (sub) for (const s of menuChoices(sub, current)) if (!s.submenu) items.push(plainChoice(s, c.label));
+      }
+      if (!items.length) throw new Error("picker_menu_empty");
+      request.items = items.slice(0, 40);
+    } catch (error) {
+      request.error = String(error && error.message || error);
+      trace("model_menu_failed", { call_id: "", tool: request.error });
+    } finally {
+      await closeMenus();
+      state.modelBusy = false;
+      request.busy = false;
+      request.at = Date.now();
+    }
+    return request;
+  }
+
+  // Chooses on the page itself, exactly as a tap there would; the label the page then shows is the result.
+  async function chooseModel(kind, label, group) {
+    kind = kind === "effort" ? "effort" : "model";
+    const request = state.modelMenu = { id: "choose-" + Date.now(), kind, busy: true, at: Date.now(), items: [], error: "", choosing: String(label || "") };
+    if (state.modelBusy || state.sending || busy()) { request.busy = false; request.error = "busy"; return request; }
+    state.modelBusy = true;
+    try {
+      const button = pickerFor(kind);
+      if (!button) throw new Error(kind === "effort" ? "effort_picker_not_found" : "model_picker_not_found");
+      const current = oneLine(button);
+      let menu = await openMenu(button);
+      if (!menu) throw new Error("picker_menu_did_not_open");
+      let choices = menuChoices(menu, current), target = findChoice(choices, label);
+      if (!target && group) {
+        const parent = choices.find(c => c.submenu && c.label === group);
+        const sub = parent && await openSubmenu(parent);
+        if (sub) target = findChoice(menuChoices(sub, current), label);
+      }
+      if (!target) for (const parent of choices.filter(c => c.submenu)) {
+        const sub = await openSubmenu(parent);
+        if (sub) target = findChoice(menuChoices(sub, current), label);
+        if (target) break;
+      }
+      if (!target) throw new Error("choice_not_found");
+      realClick(target.node);
+      await sleep(500);
+    } catch (error) {
+      request.error = String(error && error.message || error);
+      trace("model_choose_failed", { call_id: "", tool: request.error });
+    } finally {
+      await closeMenus();
+      state.modelBusy = false;
+      request.busy = false;
+      request.at = Date.now();
+    }
+    return request;
+  }
+
   function snapshot() {
     handleRouteChange();
     const failed = state.phase === "failed" || state.exhausted || deliveryFailed();
     return { runtime: VERSION, conversation: conversationKey(), title: document.title || "",
       ready: state.ready, composer: !!findComposer(), running: busy(), activity: activity(), live: liveInfo(),
       standby: setupStandby(),
-      setup: state.ready || setupStandby() ? null : setupProgress((document.documentElement.lang || navigator.language || "").toLowerCase().startsWith("zh")),
+      setup: state.ready || setupStandby() ? null : setupProgress(),
       attention: deliveryFailed() ? "delivery_failed" : state.phase === "failed" ? "setup_failed"
         : state.exhausted ? "runtime_stalled" : state.userError ? "send_failed" : "",
       can_retry: failed, last_error: health().last_error, task_status: state.nativeTask ? state.nativeTask.status : "",
       conversations: state.conversationList, conversations_at: state.conversationListAt, renamed: state.renamed || null,
+      model: modelState(), model_menu: state.modelMenu || null,
       items: transcript() };
   }
 
@@ -2074,6 +2280,61 @@
   // renamed (in the user's own account, as the site's rename does) to the user's first real message, once.
   const TITLES_KEY = "__ophone_ai_titles_fixed";
   function titlesFixed() { try { return JSON.parse(localStorage.getItem(TITLES_KEY) || "[]"); } catch (_) { return []; } }
+  /* ---------- the answers' original Markdown, read through the site's own conversation API (the signed-in
+     user's own data, same origin, kept on the phone). The chat view renders it with the same open-source stack
+     and math rules as chatgpt.com; the text reconstructed from the page is the fallback (while an answer is
+     still being written, or when the API cannot be read). ---------- */
+  const rawMessages = new Map();
+  let rawFor = "", rawSig = "", rawBusy = false, rawAt = 0, rawFailAt = 0;
+  function nodeMessageId(node) {
+    if (!node || !node.getAttribute) return "";
+    const own = node.getAttribute("data-message-id");
+    if (own) return own;
+    const inner = node.querySelector && node.querySelector("[data-message-id]");
+    if (inner && inner.getAttribute) return inner.getAttribute("data-message-id") || "";
+    const key = node.getAttribute("data-chatgpt-search-unit-key") || "";
+    return key.includes(":") ? key.slice(0, key.lastIndexOf(":")) : "";
+  }
+  // The site's inline citation / entity markers (private-use characters it turns into chips) are left out.
+  function cleanRaw(text) {
+    return String(text).replace(/\ue200[\s\S]*?\ue201/g, "").replace(/[\ue200-\ue2ff]/g, "")
+      .replace(/\u3010\d+(?::\d+)?\u2020[^\u3011]*\u3011/g, "");
+  }
+  async function fetchRawMessages(id) {
+    try {
+      const headers = await siteHeaders();
+      if (!headers) return false;
+      const response = await withTimeout(fetch("/backend-api/conversation/" + id, { credentials: "include", headers }), 15000, "conversation_timeout");
+      if (!response.ok) return false;
+      const data = await response.json(), mapping = data && data.mapping || {};
+      for (const key of Object.keys(mapping)) {
+        const message = mapping[key] && mapping[key].message;
+        if (!message || !message.id || !message.author || message.author.role !== "assistant" || !message.content) continue;
+        const type = message.content.content_type;
+        if (type !== "text" && type !== "multimodal_text") continue;
+        const parts = (message.content.parts || []).filter(part => typeof part === "string");
+        if (parts.length) rawMessages.set(message.id, cleanRaw(parts.join("\n\n")).trim());
+      }
+      while (rawMessages.size > 1500) rawMessages.delete(rawMessages.keys().next().value);
+      return true;
+    } catch (_) { return false; }
+  }
+  // Read again only when the page's answers changed and nothing is being written.
+  function syncRawMessages() {
+    const key = conversationKey(), now = Date.now();
+    if (key !== rawFor) { rawMessages.clear(); rawFor = key; rawSig = ""; }
+    if (!/^c:[A-Za-z0-9-]{8,80}$/.test(key) || rawBusy || busy() || (rawAt && now - rawAt < 1500) || (rawFailAt && now - rawFailAt < 30000)) return;
+    const answers = allMessages().filter(node => messageRole(node) === "assistant"), last = answers[answers.length - 1];
+    const sig = answers.length + ":" + (last ? nodeMessageId(last) + ":" + messageText(last).length : "");
+    if (sig === rawSig) return;
+    rawBusy = true;
+    fetchRawMessages(key.slice(2)).then(ok => {
+      rawBusy = false; rawAt = Date.now();
+      if (!ok) { rawFailAt = Date.now(); trace("raw_messages_unavailable"); return; }
+      if (conversationKey() === key) rawSig = sig;
+    });
+  }
+
   async function renameConversation(id, title) {
     try {
       const headers = await siteHeaders();
@@ -2398,6 +2659,7 @@
       flushResult().catch(() => {});
       flushUser().catch(() => {});
       if (state.ready) syncTitle();
+      syncRawMessages();
     }
     syncReadyGate();
     syncProtocolPresentation();
@@ -2505,6 +2767,8 @@
     refreshConversations: refreshConversations,
     loadOlder: loadOlderMessages,
     moreConversations: function () { loadMoreConversations().catch(() => {}); return "started"; },
+    modelOptions: function (kind, id) { modelOptions(kind, id).catch(() => {}); return "started"; },
+    chooseModel: function (kind, label, group) { chooseModel(kind, label, group).catch(() => {}); return "started"; },
     stop: function () {
       state.stopped = true;
       state.epoch += 1;

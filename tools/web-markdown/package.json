@@ -1,0 +1,23 @@
+{
+  "name": "ophone-ai-web-markdown",
+  "private": true,
+  "description": "Builds assets/chat/vendor/web-markdown.min.js: the open-source unified/remark/rehype stack used to render ChatGPT web answers in OPhone AI's local view.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "katex": "0.16.21",
+    "rehype-katex": "7.0.1",
+    "rehype-stringify": "10.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-parse": "11.0.0",
+    "remark-rehype": "11.1.2",
+    "unified": "11.0.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "jsdom": "25.0.1"
+  }
+}

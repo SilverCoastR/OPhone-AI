@@ -23,6 +23,10 @@ public final class DirectModelAgent {
     private final LocalToolKernel kernel;private final ModelProvider provider;private final ModelClient client;private final ConcurrentLinkedQueue<JSONObject> guidance=new ConcurrentLinkedQueue<>();
     private volatile boolean running,cancelled;private volatile Thread heartbeat;private volatile Ui ui=HEADLESS;
     private volatile String ownedConversation="",taskId="",terminationReason="";
+    private volatile String modelOverride="",effortOverride="";
+    /** A scheduled run's own model and reasoning level, for this agent only; the platform settings stay as they are. */
+    void useOverrides(String model,String effort){ModelApiStore store=settings;modelOverride=model!=null&&store.acceptsModel(model.trim())?model.trim():"";effortOverride=effort!=null&&provider.supportsThinking()&&store.validEffort(effort.trim())?effort.trim():"";}
+    private ModelApiStore.Config withOverrides(ModelApiStore.Config c){if(modelOverride.isEmpty()&&effortOverride.isEmpty())return c;return new ModelApiStore.Config(c.provider,modelOverride.isEmpty()?c.model:modelOverride,c.thinking||!effortOverride.isEmpty(),effortOverride.isEmpty()?c.reasoningEffort:effortOverride,c.maxTokens,c.baseUrl);}
 
     DirectModelAgent(Context c){this(c,ModelProvider.current(c));}
     DirectModelAgent(Context c,ModelProvider p){context=c.getApplicationContext();provider=p;settings=p.store(c);client=p.client();history=new ApiConversationStore(c);kernel=new LocalToolKernel(c);}
@@ -53,7 +57,7 @@ public final class DirectModelAgent {
             progress(context.getString(internalResume?R.string.agent_restoring:R.string.agent_request_received));
             String human="api-"+UUID.randomUUID().toString();JSONObject observed=TaskController.get(context).bridge("observe_request",new JSONObject().put("conversation",conversation).put("human_key",human).put("goal",input).put("guidance_if_active",true));
             JSONObject task=observed.optBoolean("managed")?observed.getJSONObject("task"):null;if(task!=null){taskId=task.getString("id");startHeartbeat(conversation,taskId);progress(observed.optBoolean("continued")?context.getString(R.string.agent_guidance_merged):context.getString(R.string.agent_task_created,task.optString("goal")));}
-            JSONArray fullTools=openAiTools(kernel.mcpTools()),tools=task==null?discoveryTools(fullTools):fullTools,live=history.contextMessages(conversation);ModelApiStore.Config config=settings.config();int calls=0,guards=0,protocolRetries=0,turn=0;
+            JSONArray fullTools=openAiTools(kernel.mcpTools()),tools=task==null?discoveryTools(fullTools):fullTools,live=history.contextMessages(conversation);ModelApiStore.Config config=withOverrides(settings.config());int calls=0,guards=0,protocolRetries=0,turn=0;
             while(!cancelled){drainGuidance(live);boolean managed=task!=null;String planning=context.getString(managed?R.string.agent_planning_task:R.string.agent_deciding_capability);ui.onStatus(planning);progress("step",context.getString(R.string.agent_processing_step,++turn));ui.onResponseStart();final StringBuilder turnText=new StringBuilder();final boolean[] thinking={false};
                 DeepSeekClient.Result result=client.stream(settings.apiKey(),config,requestMessages(live,managed,!managed,provider.id),tools,new DeepSeekClient.StreamListener(){
                     public void onText(String value){turnText.append(value);}public void onThinking(){if(!thinking[0]){thinking[0]=true;ui.onStatus(context.getString(R.string.agent_thinking));progress(context.getString(R.string.agent_analyzing));}}
@@ -72,7 +76,7 @@ public final class DirectModelAgent {
                         JSONObject args;try{args=new JSONObject(fn.optString("arguments","{}"));}catch(Exception malformed){args=new JSONObject();}ui.onTool(name,args.toString());progress("tool",context.getString(R.string.agent_executing_tool,name));
                         if(task==null&&!"capabilities".equals(name))throw new IllegalStateException("discovery_phase_only_allows_capabilities");
                         JSONObject scope=task==null?null:new JSONObject().put("conversation",conversation).put("task_id",task.getString("id")).put("call_id","api-"+UUID.randomUUID());JSONObject value;
-                        try {value=kernel.call(name,args,scope);}catch(Throwable error){value=new JSONObject().put("ok",false).put("error",DetailedDiagnostics.clean(error.getClass().getSimpleName()+": "+error.getMessage()));}if(task!=null)attachPendingEvents(value,task.getString("id"));
+                        try {value=kernel.call(name,args,scope);}catch(Throwable error){value=new JSONObject().put("ok",false).put("error",DetailedDiagnostics.clean(error.getClass().getSimpleName()+": "+error.getMessage()));}
                         ui.onToolResult(name,value.optBoolean("ok"),resultSummary(value));progress("tool",context.getString(value.optBoolean("ok")?R.string.agent_tool_completed:R.string.agent_tool_error,name));JSONObject persisted=toolMessage(providerId,name,value,config.model,false).put("provider",provider.id).put("created_at",System.currentTimeMillis()),wire=toolMessage(providerId,name,value,config.model,true);history.append(conversation,persisted);live.put(wire);
                         if(task==null&&"capabilities".equals(name)&&value.optBoolean("ok")){
                             task=TaskController.get(context).begin(conversation,human,input);taskId=task.getString("id");startHeartbeat(conversation,taskId);tools=fullTools;
@@ -105,15 +109,6 @@ public final class DirectModelAgent {
         history.append(conversation,new JSONObject().put("role","assistant").put("content",question).put("ask_user",true).put("options",safe).put("provider",provider.id).put("created_at",System.currentTimeMillis()));
         ui.onStatus(context.getString(R.string.agent_waiting_user));ui.onQuestion(question,safe.toString());ui.onFinished();
     }
-    /** Piggybacks new task events on the next tool result: delivered at a step boundary, never mid-generation. */
-    private final java.util.Map<String,Long> eventVersions=new java.util.HashMap<>();
-    private void attachPendingEvents(JSONObject value,String task){try{
-        JSONArray pending=AgentEvents.get(context).pending(task),fresh=new JSONArray();
-        for(int i=0;i<pending.length()&&fresh.length()<3;i++){JSONObject n=pending.getJSONObject(i);long version=n.optLong("latest_event_id");Long seen=eventVersions.get(n.optString("id"));if(seen!=null&&seen>=version)continue;eventVersions.put(n.optString("id"),version);
-            JSONObject e=n.optJSONObject("event")==null?new JSONObject():n.getJSONObject("event");String data=e.optJSONObject("data")==null?"":e.getJSONObject("data").toString();
-            fresh.put(new JSONObject().put("delivery_id",n.optString("id")).put("type",e.optString("type")).put("level",e.optString("level")).put("count",n.optInt("count")).put("latest_event_id",version).put("summary",data.length()>300?data.substring(0,300)+"...":data));}
-        if(fresh.length()>0)value.put("pending_events",fresh).put("pending_events_hint","New task events arrived; handle them when relevant, read details with event_query and acknowledge with event_ack.");
-    }catch(Exception ignored){}}
     private void drainGuidance(JSONArray live)throws Exception{JSONObject message;while((message=guidance.poll())!=null){String id=message.optString("guidance_id");boolean present=false;for(int i=0;i<live.length();i++)if(id.equals(live.optJSONObject(i)==null?"":live.optJSONObject(i).optString("guidance_id"))){present=true;break;}if(!present)live.put(new JSONObject(message.toString()));}}
     private void progress(String text){progress("",text);}
     /** kind "tool"/"step" marks lines the chat UI already shows as structured tool steps. */

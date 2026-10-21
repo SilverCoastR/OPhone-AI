@@ -27,13 +27,13 @@
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #000000;
+  --bg: #161618;
   --canvas-a: rgba(10, 132, 255, .16);
   --canvas-b: rgba(191, 90, 242, .12);
   --canvas-c: rgba(48, 209, 88, .07);
-  --text: #ffffff;
-  --muted: rgba(235, 235, 245, .62);
-  --faint: rgba(235, 235, 245, .32);
+  --text: #e3e3e6;
+  --muted: rgba(227, 227, 232, .58);
+  --faint: rgba(227, 227, 232, .3);
   --separator: rgba(84, 84, 88, .55);
   --fill: rgba(118, 118, 128, .24);
   --fill-strong: rgba(118, 118, 128, .36);
@@ -42,8 +42,8 @@
   --ok: #30d158;
   --err: #ff453a;
   --err-bg: rgba(255, 69, 58, .14);
-  --glass: rgba(44, 44, 48, .55);
-  --glass-strong: rgba(44, 44, 48, .76);
+  --glass: rgba(50, 50, 54, .55);
+  --glass-strong: rgba(48, 48, 52, .8);
   --glass-edge: rgba(255, 255, 255, .14);
   --glass-shine: rgba(255, 255, 255, .22);
   --glass-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 1px 3px rgba(0, 0, 0, .3);
@@ -234,7 +234,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 :root[data-theme="dark"] .hljs-attr, :root[data-theme="dark"] .hljs-attribute, :root[data-theme="dark"] .hljs-built_in, :root[data-theme="dark"] .hljs-params, :root[data-theme="dark"] .hljs-variable, :root[data-theme="dark"] .hljs-template-variable { color: #dabaff; }
 :root[data-theme="dark"] .hljs-meta, :root[data-theme="dark"] .hljs-deletion { color: #ffa14f; }
 
-/* Empty state: large title and glass suggestion tiles. */
+/* Empty state: large title. */
 #empty { min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; padding: 24px 18px 8px; }
 #empty .logo {
   width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; margin-bottom: 18px;
@@ -242,10 +242,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: 0 12px 28px rgba(0, 122, 255, .3), inset 0 1px 0 rgba(255,255,255,.5);
 }
 #empty h1 { font-size: 34px; line-height: 1.12; font-weight: 700; letter-spacing: -.03em; margin: 0 0 22px; }
-.suggestions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 620px; }
-.suggestions button { text-align: left; padding: 14px 16px; border-radius: 22px; font-size: 15px; line-height: 1.35; }
-.suggestions button b { display: block; font-weight: 600; margin-bottom: 2px; }
-.suggestions button span { color: var(--muted); font-size: 13.5px; }
 
 /* Composer: floating glass capsule. */
 #composer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; padding: 0 12px max(10px, env(safe-area-inset-bottom)); pointer-events: none; }
@@ -266,7 +262,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .send.running { background: var(--text); color: var(--bg); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
 .send.running .i-send { display: none; }
 .send.running .i-stop { display: block; }
-.hint { max-width: 760px; margin: 7px auto 0; text-align: center; font-size: 11px; color: var(--faint); min-height: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The AI disclaimer sits on the empty chat page only; it goes away with the first message. */
+#empty .empty-hint { max-width: 520px; margin: 0 auto 6px; text-align: center; font-size: 12px; line-height: 1.45; color: var(--faint); }
 .jump { position: absolute; left: 50%; transform: translateX(-50%); bottom: 118px; z-index: 5; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--text); }
 .jump svg { width: 18px; height: 18px; }
 
@@ -280,6 +277,11 @@ body.drawer-open #scrim { opacity: 1; }
   background: var(--glass-strong);
 }
 body.drawer-open #drawer { transform: none; }
+/* Pulled from the right edge: the same drawer, anchored on the right. */
+body.drawer-right #drawer { left: auto; right: 8px; transform: translateX(calc(100% + 16px)); }
+body.drawer-right.drawer-open #drawer { transform: none; }
+/* While a finger drags the drawer it follows the finger exactly. */
+body.drawer-dragging #drawer, body.drawer-dragging #scrim { transition: none; }
 .drawer-head { padding: 4px 6px 8px; }
 .drawer-head h2 { margin: 2px 4px 12px; font-size: 30px; font-weight: 700; letter-spacing: -.03em; }
 .search { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 38px; border-radius: 12px; background: var(--fill); color: var(--faint); }
@@ -398,4 +400,22 @@ body.setup-on #scroller { padding-bottom: 230px; scroll-padding-bottom: 230px; }
 #empty .hero-model { margin-top: 8px; padding: 4px 12px; border-radius: 999px; background: var(--fill-strong); color: var(--muted); font-size: 13px; font-weight: 500; }
 #empty .hero-model:empty { display: none; }
 #empty .hero .greeting { margin: 14px 0 0; color: var(--muted); font-size: 16px; }
-#empty .suggestions { margin: 0 auto; }
+.web #empty .hero .logo, .web #empty .hero .brand { display: none; }
+
+/* Web: model and reasoning level chips above the input, mirroring the ChatGPT page's pickers. */
+.model-bar { max-width: 760px; margin: 0 auto 8px; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.model-bar::-webkit-scrollbar { display: none; }
+.model-bar .chip { flex: 0 1 auto; min-width: 0; max-width: 70%; display: inline-flex; align-items: center; gap: 4px; padding: 7px 10px 7px 14px; border-radius: 999px; color: var(--text); font-size: 14px; font-weight: 600; }
+.model-bar .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-bar .chip .caret { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.model-bar .chip:disabled { opacity: .5; }
+.model-sheet { max-height: 80vh; }
+.model-sheet .model-note { margin: 0; }
+.model-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; }
+.model-list .model-group { margin: 8px 4px 0; color: var(--muted); font-size: 13px; font-weight: 600; }
+.model-list .model-option { display: flex; align-items: center; gap: 10px; text-align: left; font-weight: 500; }
+.model-list .model-option .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.model-list .model-option .name { font-weight: 600; }
+.model-list .model-option .detail { color: var(--muted); font-size: 13px; font-weight: 400; }
+.model-list .model-option.selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.model-list .model-option svg { flex: none; width: 20px; height: 20px; fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }

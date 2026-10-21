@@ -20,6 +20,7 @@
   <div class="drawer-foot">
     <button class="drawer-item" data-open="browser"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span data-i18n="browser"></span></button>
     <button class="drawer-item" data-open="model"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg><span data-i18n="model"></span></button>
+    <button class="drawer-item" data-open="schedules"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg><span data-i18n="schedules"></span></button>
     <button class="drawer-item" data-open="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span data-i18n="settings"></span></button>
     <div class="drawer-row">
       <button class="drawer-item" data-open="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/></svg><span data-i18n="about"></span><span id="update-dot" class="update-dot" hidden></span></button>
@@ -39,7 +40,7 @@
         <div id="model" class="hero-model"></div>
         <p class="greeting" data-i18n="greeting"></p>
       </div>
-      <div id="suggestions" class="suggestions"></div>
+      <p class="empty-hint" data-i18n="hint"></p>
     </section>
   </main>
   <header id="topbar">
@@ -52,15 +53,16 @@
   <button id="jump" class="jump glass press" hidden aria-label="Scroll to bottom"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></button>
   <footer id="composer">
     <div id="setup-bar" class="setup-bar glass" role="status" hidden><div class="label"></div><div class="track"><div class="fill"></div></div><div class="step"></div></div>
+    <div id="model-bar" class="model-bar" hidden><button id="model-chip" class="chip glass press"></button><button id="effort-chip" class="chip glass press" hidden></button></div>
     <div class="box glass">
       <textarea id="input" rows="1" enterkeyhint="send"></textarea>
       <button id="send" class="send press" disabled aria-label="Send"><svg class="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></button>
     </div>
-    <div id="hint" class="hint"></div>
   </footer>
 </div>
 <script src="vendor/markdown-it.min.js"></script>
 <script src="vendor/katex/katex.min.js"></script>
+<script src="vendor/web-markdown.min.js"></script>
 <script src="vendor/highlight.min.js"></script>
 <script src="markdown.js"></script>
 <script src="app.js"></script>

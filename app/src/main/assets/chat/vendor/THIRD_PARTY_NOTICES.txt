@@ -1,7 +1,10 @@
 Bundled chat-rendering libraries (unmodified distribution files):
 
 - markdown-it 14.1.0 — MIT License — https://github.com/markdown-it/markdown-it
-- KaTeX 0.16.11 (JS, CSS, WOFF2 fonts) — MIT License — https://github.com/KaTeX/KaTeX
+- KaTeX 0.16.21 (JS, CSS, WOFF2 fonts) — MIT License — https://github.com/KaTeX/KaTeX
+- web-markdown.min.js: unified 11, remark-parse 11, remark-gfm 4, remark-math 6, remark-rehype 11, rehype-katex 7,
+  rehype-stringify 10 and their dependencies (MIT, ISC, BSD-2-Clause), bundled by tools/web-markdown;
+  every bundled package with its full license text is listed in web-markdown.LICENSES.txt
 - highlight.js 11.10.0 (common languages build) — BSD 3-Clause License — https://github.com/highlightjs/highlight.js
 - Mermaid 11.4.1 — MIT License — https://github.com/mermaid-js/mermaid
 

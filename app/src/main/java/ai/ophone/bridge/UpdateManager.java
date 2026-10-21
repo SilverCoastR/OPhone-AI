@@ -30,7 +30,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * In-app updates from GitHub Releases. Checks at most once a day (or when the user asks), downloads only
+ * In-app updates from GitHub Releases. Checks every time the update page opens, otherwise at most once a day in
+ * the background; downloads only
  * when the user taps the button, verifies the published SHA-256, package name, signing certificate and
  * version before offering the system installer, which always asks the user to confirm.
  */
@@ -58,12 +59,39 @@ public final class UpdateManager {
         worker.execute(()->check(c,false));}
     public static void checkNow(Context context){Context c=context.getApplicationContext();if(busy)return;worker.execute(()->check(c,true));}
 
+    /**
+     * After the user installed an update: once the running version is at least the downloaded or published one,
+     * the kept APK is deleted and the page says this version is the latest. Returns true when an update was just
+     * confirmed as installed. Safe to call often (app start, package replaced, opening the update page).
+     */
+    public static synchronized boolean reconcileInstalled(Context context){Context c=context.getApplicationContext();
+        try{JSONObject s=new JSONObject(prefs(c).getString("status","{}"));JSONObject latest=s.optJSONObject("latest");String st=s.optString("state");
+            String target=latest==null?"":latest.optString("version");
+            boolean installed=!target.isEmpty()&&!newer(target,BuildConfig.VERSION_NAME);
+            File dir=new File(c.getFilesDir(),"updates");File[] left=dir.listFiles();boolean files=left!=null&&left.length>0;
+            if(!installed&&!(files&&!"downloaded".equals(st)&&!"downloading".equals(st)))return false;
+            if(busy&&"downloading".equals(st))return false;
+            if(files)deleteOld(dir);
+            boolean justUpdated=installed&&("downloaded".equals(st)||"available".equals(st)||"failed".equals(st))&&!BuildConfig.VERSION_NAME.equals(prefs(c).getString("confirmed_version",""));
+            if(installed&&!"latest".equals(st)&&!"checking".equals(st)){s.put("state","latest").remove("file");s.remove("error");if(justUpdated)s.put("updated_to",BuildConfig.VERSION_NAME);save(c,s);}
+            else if(!installed&&files&&"downloaded".equals(st)){s.put("state","available").remove("file");save(c,s);}
+            if(justUpdated){prefs(c).edit().putString("confirmed_version",BuildConfig.VERSION_NAME).apply();cancelNotification(c);
+                DetailedDiagnostics.event(c,"info","update","","","update_installed","Updated to "+BuildConfig.VERSION_NAME+"; the downloaded package was removed.",null);}
+            return justUpdated;
+        }catch(Exception e){return false;}}
+    /** Android tells the app its package was replaced: confirm the update, delete the installer, say so once. */
+    public static void packageReplaced(Context c){if(reconcileInstalled(c))notify(c,c.getString(R.string.update_installed_title,BuildConfig.VERSION_NAME),c.getString(R.string.update_installed_body),false);}
+    /** The update page clears the "just updated" note once it has been shown. */
+    public static void clearUpdatedNote(Context c){try{JSONObject s=new JSONObject(prefs(c).getString("status","{}"));if(s.has("updated_to")){s.remove("updated_to");prefs(c).edit().putString("status",s.toString()).apply();}}catch(Exception ignored){}}
+
     /** State for the About page: state = idle | checking | latest | available | downloading | downloaded | failed. */
     public static JSONObject status(Context c){try{SharedPreferences p=prefs(c);JSONObject s=new JSONObject(p.getString("status","{}"));
         s.put("current",BuildConfig.VERSION_NAME).put("last_check_at",p.getLong("last_check_at",0)).put("auto_check",autoCheck(c));
         if("downloading".equals(s.optString("state")))s.put("downloaded",downloaded).put("total",total);
         if("downloading".equals(s.optString("state"))&&!busy)s.put("state","failed").put("error","download_interrupted");
         if("downloaded".equals(s.optString("state"))&&!new File(s.optString("file")).isFile())s.put("state","available");
+        JSONObject latest=s.optJSONObject("latest");
+        if(latest!=null&&("available".equals(s.optString("state"))||"downloaded".equals(s.optString("state")))&&!newer(latest.optString("version"),BuildConfig.VERSION_NAME))s.put("state","latest");
         if(s.optString("state").isEmpty())s.put("state","idle");return s;}catch(Exception e){return new JSONObject();}}
     private static void save(Context c,JSONObject s){prefs(c).edit().putString("status",s.toString()).apply();changed();}
 
@@ -82,8 +110,11 @@ public final class UpdateManager {
                     .put("published_at",release.optString("published_at")).put("html_url",release.optString("html_url",RELEASES_URL));
             if(asset!=null)latest.put("asset_url",asset.optString("browser_download_url")).put("asset_name",asset.optString("name")).put("size",asset.optLong("size")).put("sha256",asset.optString("digest","").replaceFirst("^sha256:",""));
             boolean available=newer(tag,BuildConfig.VERSION_NAME)&&asset!=null;
-            String previousTag=s.optJSONObject("latest")==null?"":s.getJSONObject("latest").optString("tag");boolean keepDownload="downloaded".equals(s.optString("state"))&&tag.equals(previousTag);
+            String previousTag=s.optJSONObject("latest")==null?"":s.getJSONObject("latest").optString("tag");boolean keepDownload=available&&"downloaded".equals(s.optString("state"))&&tag.equals(previousTag);
+            String updatedTo=s.optString("updated_to");
             s=new JSONObject().put("state",keepDownload?"downloaded":available?"available":"latest").put("latest",latest);if(keepDownload)s.put("file",status(c).optString("file"));
+            if(!available&&!updatedTo.isEmpty())s.put("updated_to",updatedTo);
+            if(!available)deleteOld(new File(c.getFilesDir(),"updates"));
             prefs(c).edit().putLong("last_check_at",System.currentTimeMillis()).apply();save(c,s);
             if(available&&!manual&&!keepDownload&&!tag.equals(prefs(c).getString("notified_tag","")))notify(c,c.getString(R.string.update_notify_title,latest.optString("version")),c.getString(R.string.update_notify_body),false);
             if(available)prefs(c).edit().putString("notified_tag",tag).apply();

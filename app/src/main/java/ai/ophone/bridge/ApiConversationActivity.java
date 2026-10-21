@@ -17,6 +17,7 @@ import java.util.Date;
 
 /** Local provider-neutral conversation picker. */
 public final class ApiConversationActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private ApiConversationStore store;private LinearLayout list;
     @Override protected void onCreate(Bundle state){super.onCreate(state);store=new ApiConversationStore(this);ScrollView scroll=new ScrollView(this);list=UiKit.page(this);scroll.addView(list,new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));setContentView(scroll);render();}
     @Override protected void onResume(){super.onResume();render();}

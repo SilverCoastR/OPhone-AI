@@ -38,6 +38,7 @@ import java.util.Map;
  * sits at the bottom, sliding away while reading. No model protocol or chat session is injected into pages.
  */
 public final class BrowserActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     static final String SEARCH="https://www.bing.com/search?q=";
     private static final int FILE_REQUEST=4101;
     private static final PathInterpolator SPRING=new PathInterpolator(.32f,.72f,0f,1f);
@@ -88,7 +89,7 @@ public final class BrowserActivity extends Activity {
         FrameLayout.LayoutParams editLp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);editLp.setMargins(dp(12),0,dp(12),dp(12));root.addView(editBar,editLp);
 
         overlay=new FrameLayout(this);overlay.setVisibility(View.GONE);root.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
-        setContentView(root);refresh();
+        setContentView(root);openRequested(getIntent());refresh();
     }
 
     private int dp(float v){return UiKit.dp(this,v);}
@@ -224,6 +225,14 @@ public final class BrowserActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==FILE_REQUEST&&fileCallback!=null){fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));fileCallback=null;}}
 
+    /** A link the user opened in OPhone AI (GitHub, releases, a link in a reply): a new tab of this browser. */
+    static final String EXTRA_OPEN_URL="open_url";
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);openRequested(intent);}
+    private void openRequested(Intent intent){
+        String url=intent==null?null:intent.getStringExtra(EXTRA_OPEN_URL);if(url==null||url.isEmpty())return;intent.removeExtra(EXTRA_OPEN_URL);
+        new Thread(()->{try{browser.open(new JSONObject().put("url",url).put("new_tab",browser.tabs.size()<6).put("wait_ms",0),new JSONObject());}
+            catch(Exception e){runOnUiThread(()->toast(String.valueOf(e.getMessage())));}},"OPhoneAI-open-link").start();
+    }
     @Override public void onBackPressed(){if(editBar.getVisibility()==View.VISIBLE){stopEditing();return;}if(overlay.getVisibility()==View.VISIBLE){closeOverlay();return;}
         BrowserManager.Tab t=current();if(t!=null&&t.web.canGoBack()){nav(false);return;}super.onBackPressed();}
     @Override protected void onDestroy(){if(browser.activity==this)browser.activity=null;if(fileCallback!=null){fileCallback.onReceiveValue(null);fileCallback=null;}content.removeAllViews();super.onDestroy();}

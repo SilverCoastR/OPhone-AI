@@ -46,3 +46,32 @@ Since 1.10 the ChatGPT platform again shows OPhone AI's own chat page (`assets/c
 The runtime also exposes `submit`, `userStop` and `snapshot` (used by tests and by the chat page's `provider=web` mode, which is currently not wired into an activity).
 
 The fixture in `tests/chat-presentation.html` exercises presentation behavior against `ophone-ai-runtime.js` without invoking phone actions.
+
+## Model and reasoning level (ChatGPT web)
+
+The local view mirrors the ChatGPT page's own pickers. The runtime reads the model switcher's label and, when the current model has one, the reasoning-level picker beside the composer (`snapshot().model`). The chips above the input show both. Tapping one opens the same menu on the page, lists its choices (one submenu level, such as legacy models; switches such as temporary chat are skipped) and closes it again (`model_menu` in the snapshot). Choosing taps that item on the page, so the page stays the reference: the chip shows whatever label the page shows afterwards. Choosing is refused while ChatGPT is answering or a task runs.
+
+## Formulas from the ChatGPT page
+
+The chat view does not show the ChatGPT page's DOM. It rebuilds each answer from Markdown and renders it with its own markdown-it and KaTeX. For a formula, the runtime takes the TeX source from the page's KaTeX output (`annotation[encoding="application/x-tex"]`). Inline formulas are written as `\(…\)` and display formulas as `$$…$$`. A display formula met inside inline content (bold text, a list line, a table cell) is written as `\[…\]`. This avoids the `$…$` heuristics that reject `$n$1` or a closing `$` after a backslash.
+
+A copy of the chat view's KaTeX build is loaded into the ChatGPT page as a private object (`window.__OPhoneAIKatex`, no global `katex`, no AMD registration). The runtime checks each formula with it. When it cannot render a formula the page shows, for example an extension such as `\ce{…}`, a site macro, or a formula without TeX source, the answer carries the page's rendered `.katex-html` for that formula (`item.math`, keyed by whitespace-normalized TeX). The chat view shows that markup after reducing it to KaTeX's spans and SVG strokes, with no scripts, images, event handlers or URLs. Other formulas are rendered locally, so snapshots stay small.
+
+## ChatGPT web answers in their original Markdown
+
+Once an answer is complete, the runtime reads the conversation through chatgpt.com's own conversation API (`GET /backend-api/conversation/{id}`). This is the signed-in user's own data, read from the same origin with the page's session, and it is kept on the phone and not sent anywhere else. Each assistant message's original Markdown is matched to the page message by its message id. The site's private-use citation markers are removed, since the page shows them as chips. The API is read again only when the page's answers change and nothing is being written; after a failure it waits 30 s. While an answer is still being written, or when the API cannot be read, the text reconstructed from the page (with page-rendered formulas as above) is used instead.
+
+These answers (`raw: true`) are rendered by `vendor/web-markdown.min.js`, built in `tools/web-markdown` from open-source packages only: unified, remark-parse, remark-gfm, remark-math, remark-rehype, rehype-katex and rehype-stringify, with KaTeX 0.16.21, the same version chatgpt.com loads. The math rules follow chatgpt.com: `$$…$$`, `\(…\)` and `\[…\]` are math, while a single `$…$` is plain text (`singleDollarTextMath: false`). The `\(…\)` / `\[…\]` support is OPhone AI's own preprocessing, which skips code spans and fences. No code from chatgpt.com's scripts is used; they were only inspected to learn which public libraries and settings the site uses. Raw HTML in an answer is never rendered. Code blocks, tables, links (web and mail only) and images (data: or workspace only) then get this view's usual treatment.
+
+API platforms keep this view's own rules: markdown-it, where `$…$` is also math, which DeepSeek and others use.
+
+Rebuild the bundle with `cd tools/web-markdown && npm install && npm run build`. Versions are pinned in `package.json` and `package-lock.json`. The build also copies KaTeX into `vendor/katex` and writes `vendor/web-markdown.LICENSES.txt`.
+
+## Drawer from either edge
+
+On the chat pages (API platforms and the ChatGPT local view), a finger pulled in from the left or right screen edge drags the drawer out from that side, following the finger. On release it opens past 35%, or after a quick fling; otherwise it slides back. Back on a chat page never leaves it: it closes a sheet or the drawer, and otherwise opens the drawer. Switching platform is in the drawer.
+
+The page gets the edge touches as follows (`EdgeDrawer`):
+- **Android 10+:** a 200 dp band of each edge, a little below the middle, is excluded from the system back gesture (the most Android allows per edge).
+- **Android 14+:** everywhere else on the edge, the system back gesture's progress and edge drive the same drag (predictive back, opted in for the two chat activities). Since the app compiles for API 33, the callback is reached by reflection.
+- **Older versions and button navigation:** Back opens the drawer without following a finger.

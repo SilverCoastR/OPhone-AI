@@ -9,6 +9,7 @@ import android.os.Bundle;
 
 /** Minimal transparent host for Android's mandatory MediaProjection confirmation. */
 public final class ScreenCaptureActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private static final int REQUEST_CAPTURE=3901;
     private String recordingId;
     @Override protected void onCreate(Bundle state){

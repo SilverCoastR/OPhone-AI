@@ -23,3 +23,22 @@ OPhone AI counts as on screen when one of its activities is resumed (tracked wit
 ## Feedback privacy
 
 Feedback contains the app version, a UTC time, the user's text and, optionally, OPhone AI's own logs. Device model and identifiers, system version, language, region, time zone, IP addresses and location fields or coordinates are removed from the logs before the package is created (`FeedbackActivity.scrub`). Reports go to the address in `BuildConfig.FEEDBACK_EMAIL` through the user's email app as plain text in the message body (no attachment); logs longer than about 150,000 characters keep their beginning and end.
+
+## When OPhone AI comes to the front by itself
+
+OPhone AI comes back to the front on its own only to bring the user back from an app the AI was operating for that task. `TaskProgress.foregroundBlock` checks every case below; when any check fails, a notification that opens the conversation is posted instead:
+
+- OPhone AI is not already on screen, and the user has not pressed Take over.
+- The screen is on and unlocked.
+- The AI acted outside OPhone AI for this task in this session (`noteAiAction` after each phone action) within the last 15 minutes.
+- The app on screen is still the one the AI was operating. If the user switched to another app, OPhone AI stays away.
+
+This applies to the following cases:
+- **A task ends or asks a question.** Only tasks that worked in this session count; a task saved again after a restart never brings anything up.
+- **The `return_to_chat` tool.** It answers with `returning:false` and the reason.
+- **The ChatGPT page runtime gives up while the user is away.**
+- **`browser_open`.** The built-in browser comes forward only while the user is in OPhone AI or the AI holds the screen; otherwise the page loads in the background (`browser_shown:false`).
+- **A scheduled live-stream watch.** The browser comes forward once per job, and only on an unlocked, lit screen.
+- **A scheduled ChatGPT run.** It opens directly when the screen is off or locked (shown over the lock screen) or the user is already in OPhone AI. While the user is using another app it posts a notification instead.
+
+Each decision is logged as `foreground_return`, `foreground_return_skipped` or `browser_kept_in_background`, with the reason, in the diagnostics included in feedback logs.

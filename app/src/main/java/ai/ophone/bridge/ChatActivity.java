@@ -58,6 +58,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * slim bar for its tool status; when the local view cannot help (sign-in, verification), the banner leads there.
  */
 public class ChatActivity extends Activity {
+    @Override protected void attachBaseContext(android.content.Context base) { super.attachBaseContext(base); UiKit.applyTheme(this); }
     private static final String UI_PREFS = "ui";
     private static final String KEY_NOTIFICATION_PROMPTED = "notification_prompted";
     private static final String KEY_VIEW = "chatgpt_view";
@@ -313,9 +314,14 @@ public class ChatActivity extends Activity {
         chatView.addJavascriptInterface(new ChatBridge(), "OPhoneChat");
         conversationsJson = mergedConversations();
         stack.addView(chatView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        EdgeDrawer.attach(this, new EdgeDrawer.Host() {
+            @Override public WebView chat() { return chatView; }
+            @Override public boolean chatActive() { return !webShown && chatReady && chatView != null && !isInPictureInPictureMode(); }
+            @Override public void back() { onBackPressed(); }
+        });
         setContentView(stack);
         chatView.loadUrl(ApiChatActivity.ORIGIN + "/chat/index.html?provider=web&lang="
-                + (Locale.getDefault().getLanguage().startsWith("zh") ? "zh" : "en") + "&dark=" + (UiKit.isDark(this) ? 1 : 0));
+                + UiKit.language() + "&dark=" + (UiKit.isDark(this) ? 1 : 0));
         topBar.setVisibility(View.GONE);
         doneButton.setVisibility(View.GONE);
         // Open in the view the user chose last time; both views drive the same page and tools.
@@ -327,6 +333,7 @@ public class ChatActivity extends Activity {
         String initialUrl = trustedInitialChatUrl(
                 getIntent().getStringExtra("url"));
         webView.loadUrl(initialUrl);
+        acceptScheduledRun(getIntent());
     }
 
     private TextView iconButton(String glyph) {
@@ -475,6 +482,17 @@ public class ChatActivity extends Activity {
         @JavascriptInterface public void loadOlder() { ui(() -> runtimeCall("loadOlder")); }
         /** End of the drawer list: the next page of conversations from chatgpt.com. */
         @JavascriptInterface public void moreConversations() { ui(() -> { lastListRefresh = System.currentTimeMillis(); runtimeCall("moreConversations"); }); }
+        /** The page's model or reasoning-level picker: list its choices (answered in the snapshot as model_menu). */
+        @JavascriptInterface public void modelMenu(String kind, String id) {
+            if (!"model".equals(kind) && !"effort".equals(kind) || id == null || !id.matches("[A-Za-z0-9-]{1,40}")) return;
+            ui(() -> runtimeInvoke("modelOptions", new JSONArray().put(kind).put(id)));
+        }
+        /** Choose on the page itself; the label the page then shows is what the chat view displays. */
+        @JavascriptInterface public void chooseModel(String kind, String label, String group) {
+            if (!"model".equals(kind) && !"effort".equals(kind) || label == null || label.isEmpty() || label.length() > 120) return;
+            String parent = group == null || group.length() > 120 ? "" : group;
+            ui(() -> runtimeInvoke("chooseModel", new JSONArray().put(kind).put(label).put(parent)));
+        }
         @JavascriptInterface public void delete(String id) { toast(R.string.chatgpt_delete_in_page); }
         @JavascriptInterface public void copy(String text) {
             ui(() -> { ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("OPhone AI", text));
@@ -495,6 +513,7 @@ public class ChatActivity extends Activity {
                 if ("settings".equals(target)) startActivity(new Intent(ChatActivity.this, SettingsActivity.class));
                 else if ("model".equals(target) || "web".equals(target)) showWeb(true, true);
                 else if ("about".equals(target)) startActivity(new Intent(ChatActivity.this, AboutActivity.class));
+                else if ("schedules".equals(target)) startActivity(new Intent(ChatActivity.this, ScheduleActivity.class));
                 else if ("feedback".equals(target)) startActivity(new Intent(ChatActivity.this, FeedbackActivity.class));
                 else if ("platform".equals(target)) exitPlatform();
                 else if ("browser".equals(target)) {
@@ -557,6 +576,14 @@ public class ChatActivity extends Activity {
         });
     }
 
+    /** Runs a runtime function with JSON arguments (fixed names only) and reads the page a few times while it works. */
+    private void runtimeInvoke(String name, JSONArray args) {
+        if (webView == null || !bridgeAllowed || !name.matches("[A-Za-z]{1,40}")) return;
+        webView.evaluateJavascript("(function(){var r=window.__OPhoneAIRuntime;return r&&r." + name + "?JSON.stringify(r." + name + ".apply(r," + args + ")):'missing';})()", value -> {
+            for (int delay : new int[]{500, 1500, 3000, 5000, 8000}) webView.postDelayed(this::pollSnapshot, delay);
+        });
+    }
+
     /** Reads the engine page into render items and forwards changes to the chat page. */
     private void pollSnapshot() {
         if (webView == null || snapshotBusy) return;
@@ -586,6 +613,8 @@ public class ChatActivity extends Activity {
                 stateChanged = !before.toString().equals(state.toString());
             } catch (Exception ignored) {}
             running = snap.optBoolean("running");
+            advanceScheduledRun(snap);
+            rememberModelChoices(snap.optJSONObject("model_menu"));
             boolean remembered = rememberConversation(snap);
             if (list != null && listAt != conversationsAt) {
                 conversationsAt = listAt;
@@ -607,6 +636,23 @@ public class ChatActivity extends Activity {
             if (!snap.optString("conversation").equals(previousConversation)) refreshConversations();
         });
     }
+    /** The page's model and reasoning-level choices seen so far, offered when a schedule is edited. */
+    private String lastModelMenu = "";
+    private void rememberModelChoices(JSONObject menu) {
+        if (menu == null || menu.optBoolean("busy") || menu.optJSONArray("items") == null || menu.optJSONArray("items").length() == 0) return;
+        String key = menu.optString("id");
+        if (key.equals(lastModelMenu)) return;
+        lastModelMenu = key;
+        JSONArray labels = new JSONArray(), items = menu.optJSONArray("items");
+        for (int i = 0; i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null) labels.put(item.optString("label")); }
+        getSharedPreferences(MODEL_CHOICES, MODE_PRIVATE).edit().putString(menu.optString("kind", "model"), labels.toString()).apply();
+    }
+    static final String MODEL_CHOICES = "chatgpt_model_choices";
+    /** Conversations known from chatgpt.com and used here, for choosing a schedule's target. */
+    static JSONArray knownConversations(android.content.Context c) {
+        try { return new JSONArray(c.getSharedPreferences(CONVERSATION_PREFS, MODE_PRIVATE).getString("items", "[]")); } catch (Exception e) { return new JSONArray(); }
+    }
+
     /* ---------- conversation list: what chatgpt.com reports, plus every conversation used here ---------- */
 
     private static final String CONVERSATION_PREFS = "chatgpt_conversations";
@@ -739,8 +785,7 @@ public class ChatActivity extends Activity {
 
     private void openExternal(String url) {
         if (url == null || !(url.startsWith("https://") || url.startsWith("http://")) || url.startsWith(ApiChatActivity.ORIGIN)) return;
-        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
-        catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show(); }
+        WebPageActivity.open(this, url);
     }
 
     private void renderUpdateDot() {
@@ -890,10 +935,28 @@ public class ChatActivity extends Activity {
             while ((n = in.read(buffer)) >= 0) out.write(buffer, 0, n);
             in.close();
             String runtime = new String(out.toByteArray(), StandardCharsets.UTF_8);
+            String katex = katexForPage();
+            if (!katex.isEmpty()) webView.evaluateJavascript(katex, null);
             webView.evaluateJavascript(runtime, null);
         } catch (Exception e) {
             setStatus(R.string.conversation_runtime_failed, "");
         }
+    }
+
+    /**
+     * The chat view's own KaTeX, loaded into the ChatGPT page as a private object (no global "katex", no AMD), so
+     * the runtime can tell which of the page's formulas the chat view could not render and send those as rendered.
+     */
+    private static String katexScript;
+    private String katexForPage() {
+        if (katexScript != null) return katexScript;
+        try (InputStream in = getAssets().open("chat/vendor/katex/katex.min.js")) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] buffer = new byte[16384]; int n;
+            while ((n = in.read(buffer)) >= 0) out.write(buffer, 0, n);
+            katexScript = "(function(){if(window.__OPhoneAIKatex)return;try{window.__OPhoneAIKatex=(function(){var module={exports:{}},exports=module.exports,define=undefined;\n"
+                    + new String(out.toByteArray(), StandardCharsets.UTF_8) + "\n;return module.exports;})();}catch(e){}})();";
+        } catch (Exception e) { katexScript = ""; }
+        return katexScript;
     }
 
     private final class LocalJsBridge {
@@ -1223,6 +1286,92 @@ public class ChatActivity extends Activity {
                     && Uri.parse(shown).getPath().equals(Uri.parse(url).getPath());
             if (!same && !handleAppUrl(url) && isTrustedChatUrl(url)) loadPage(url);
         }
+        acceptScheduledRun(intent);
+    }
+
+    /* ---------- scheduled task (ScheduleRunner): open the conversation, set the page's model, then send ---------- */
+
+    private JSONObject scheduled; private String scheduledStage = ""; private long scheduledStageAt, scheduledStartedAt;
+    private final Runnable scheduledTick = new Runnable() { @Override public void run() {
+        if (scheduled == null || webView == null) return; pollSnapshot(); webView.postDelayed(this, 1000); } };
+
+    private void acceptScheduledRun(Intent intent) {
+        JSONObject run = ScheduleStore.redeem(this, intent.getStringExtra(ScheduleRunner.EXTRA_ID), intent.getStringExtra(ScheduleRunner.EXTRA_TOKEN));
+        intent.removeExtra(ScheduleRunner.EXTRA_TOKEN);
+        if (run == null) return;
+        if (scheduled != null || running) { ScheduleStore.record(this, run.optString("id"), "skipped", "chatgpt_busy"); return; }
+        scheduled = run; scheduledStage = "load"; scheduledStageAt = scheduledStartedAt = System.currentTimeMillis();
+        // Shown over the lock screen so the page keeps running; tasks that operate other apps still wait for an unlock.
+        if (android.os.Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(true); setTurnScreenOn(true); }
+        if (webView != null) { webView.removeCallbacks(scheduledTick); webView.postDelayed(scheduledTick, 1500); }
+    }
+
+    private void scheduledNote(String note) { try { scheduled.put("note", note); } catch (Exception ignored) {} }
+
+    private void endScheduledRun(String status, String detail) {
+        if (scheduled == null) return;
+        ScheduleStore.record(this, scheduled.optString("id"), status, detail);
+        scheduled = null; scheduledStage = "";
+        if (android.os.Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(false); setTurnScreenOn(false); }
+    }
+
+    private static boolean sameLabel(String shown, String wanted) {
+        String a = shown == null ? "" : shown.trim().toLowerCase(Locale.ROOT), b = wanted == null ? "" : wanted.trim().toLowerCase(Locale.ROOT);
+        return !b.isEmpty() && (a.equals(b) || a.endsWith(" " + b) || a.contains(b));
+    }
+
+    /** Steps the scheduled run along with each page snapshot; every step has a time limit. */
+    private void advanceScheduledRun(JSONObject snap) {
+        if (scheduled == null) return;
+        long now = System.currentTimeMillis(), inStage = now - scheduledStageAt;
+        JSONObject model = snap.optJSONObject("model"), menu = snap.optJSONObject("model_menu");
+        String wantModel = scheduled.optString("model"), wantEffort = scheduled.optString("effort");
+        switch (scheduledStage) {
+            case "load":
+                if (snap.optBoolean("composer") && !snap.optBoolean("running") && (model != null && model.optBoolean("can_choose") || inStage > 15000)) {
+                    if (!wantModel.isEmpty() && model != null && !sameLabel(model.optString("label"), wantModel)) {
+                        runtimeInvoke("chooseModel", new JSONArray().put("model").put(wantModel).put("")); scheduledStage = "model";
+                    } else scheduledStage = "effort-check";
+                    scheduledStageAt = now;
+                } else if (inStage > 90000) endScheduledRun("failed", "chatgpt_page_not_ready");
+                break;
+            case "model":
+                if (menu != null && menu.optString("id").startsWith("choose-") && !menu.optBoolean("busy") && menu.optLong("at") >= scheduledStageAt - 2000 || inStage > 20000) {
+                    if (menu != null && !menu.optString("error").isEmpty()) scheduledNote("model_not_changed:" + menu.optString("error"));
+                    scheduledStage = "effort-check"; scheduledStageAt = now;
+                }
+                break;
+            case "effort-check":
+                if (inStage < 1500) break;
+                if (!wantEffort.isEmpty() && model != null && model.optBoolean("can_choose_effort") && !sameLabel(model.optString("effort"), wantEffort)) {
+                    runtimeInvoke("chooseModel", new JSONArray().put("effort").put(wantEffort).put("")); scheduledStage = "effort";
+                } else scheduledStage = "send";
+                scheduledStageAt = now;
+                break;
+            case "effort":
+                if (menu != null && menu.optString("id").startsWith("choose-") && !menu.optBoolean("busy") && menu.optLong("at") >= scheduledStageAt - 2000 || inStage > 20000) {
+                    if (menu != null && !menu.optString("error").isEmpty()) scheduledNote("effort_not_changed:" + menu.optString("error"));
+                    scheduledStage = "send"; scheduledStageAt = now;
+                }
+                break;
+            case "send":
+                if (inStage < 1200) break;
+                submitToEngine(scheduled.optString("prompt"));
+                scheduledStage = "sent"; scheduledStageAt = now;
+                break;
+            case "sent":
+                // The new conversation's id appears once ChatGPT has created it; a thread schedule continues it next time.
+                String conversation = snap.optString("conversation");
+                if (!conversation.isEmpty() || inStage > 60000) {
+                    String id = scheduled.optString("id");
+                    if (!conversation.isEmpty() && ScheduleStore.CONV_THREAD.equals(scheduled.optString("conversation_mode")))
+                        ScheduleStore.update(this, id, s -> s.put("thread", conversation));
+                    String label = model == null ? "" : model.optString("label");
+                    endScheduledRun("sent", "ChatGPT" + (label.isEmpty() ? "" : " · " + label) + (scheduled.optString("note").isEmpty() ? "" : " · " + scheduled.optString("note")));
+                }
+                break;
+            default: break;
+        }
     }
 
     /** An app event for the ChatGPT conversation: it reaches the model with the next tool result, or as a message. */
@@ -1311,7 +1460,7 @@ public class ChatActivity extends Activity {
                         // The page runtime gave up while the user was in another app: bring them back to this chat.
                         if (attention && !resumed && !failedWhileAway) {
                             failedWhileAway = true;
-                            TaskProgress.returnToConversation(ChatActivity.this, pageConversation);
+                            TaskProgress.runtimeGaveUp(ChatActivity.this, pageConversation);
                         }
                         String stage = health.optString("stage");
                         if ("failed".equals(health.optString("phase"))) setStatus(R.string.chatgpt_tools_failed, health.optString("last_error"));
@@ -1348,6 +1497,8 @@ public class ChatActivity extends Activity {
     public void onBackPressed() {
         if (webShown) { showWeb(false, true); return; }
         if (!chatReady || chatView == null) { exitPlatform(); return; }
+        // The chat page answers Back itself (closes a sheet or the drawer, otherwise opens the drawer); leaving the
+        // platform is in the drawer.
         chatView.evaluateJavascript("window.OPhoneChatApp?window.OPhoneChatApp.back():false", value -> { if (!"true".equals(value)) exitPlatform(); });
     }
 

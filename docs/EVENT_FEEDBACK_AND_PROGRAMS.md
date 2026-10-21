@@ -6,6 +6,24 @@ Native subsystems publish task-scoped events for app foreground changes, tool co
 
 This design lets the agent wait for meaningful state changes instead of taking repeated screenshots. The preferred evidence order is native completion event, structured state, Accessibility UI tree, then screenshot.
 
+## Phone and app state events
+
+`PhoneEvents` (main process) records state changes that affect a running task, always, without a subscription:
+
+| Type | States |
+| --- | --- |
+| `phone.screen` | `off`, `on`, `unlocked` |
+| `phone.power` | `battery_low`, `battery_okay`, `charger_connected`, `charger_disconnected`, `shutting_down` (with battery percent) |
+| `phone.network` | connection kind `wifi` / `cellular` / `ethernet` / `vpn` / `other` / `none`, airplane mode |
+| `phone.audio` | ringer `normal` / `vibrate` / `silent` |
+| `phone.config` | rotation (`portrait` / `landscape`), dark mode |
+| `phone.memory` | low memory, critical memory pressure |
+| `ophone.lifecycle` | OPhone AI went to the `background` (from which screen) or back to the `foreground` (time away) |
+
+No network names, addresses, operators, location or device identity are recorded. Each change is also written to the diagnostics log as an info line, so feedback logs show it.
+
+While a task runs, every tool result (API platforms and ChatGPT web alike) carries `phone_events`: the changes since the previous step, informational and not acknowledged. The same result carries `pending_events` for the task's own subscriptions. These types can also be used with `event_subscribe` (source `phone`) and `task_wait`, for example to wait until the user unlocks the phone.
+
 ## Status reports
 
 Scripts and utilities report their own progress at key points. A terminal or Python job prints lines of the form `@@ophone:report {"stage":…,"message":…,"progress":0..1,"level":"info|warn|error"}`; Python scripts use the bundled helper (`from ophone import report, step`). Reports are kept in the job receipt (`reports`, `report_count`, `last_report_at`, `idle_ms`) and published as `terminal.report` events, immediately for warnings, errors, stage changes and completion, otherwise at most every two seconds per job. Saved JavaScript programs receive a `report(stage, message, progress, level)` function and return their reports with the result. The agent is instructed to add reports to every tool it writes and to investigate a job whose `idle_ms` keeps growing without new reports.
